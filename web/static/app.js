@@ -229,3 +229,33 @@ $("btn-try-sample").addEventListener("click", async () => {
 
 loadSamples();
 loadPatterns();
+
+// ---- rotating headline word ----
+(function rotateWord() {
+  const words = ["rejected", "ghosted", "ignored", "filtered out", "passed over"];
+  const el = document.querySelector(".rotator");
+  if (!el) return;
+  let i = 0;
+  setInterval(() => {
+    el.style.opacity = "0";
+    el.style.transform = "translateY(10px)";
+    setTimeout(() => {
+      i = (i + 1) % words.length;
+      el.textContent = words[i];
+      el.style.opacity = "1";
+      el.style.transform = "none";
+    }, 300);
+  }, 2600);
+})();
+
+// ---- scroll reveal ----
+(function reveal() {
+  const els = document.querySelectorAll(".reveal");
+  if (!("IntersectionObserver" in window)) { els.forEach((e) => e.classList.add("in")); return; }
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } });
+  }, { threshold: 0.12 });
+  els.forEach((e) => io.observe(e));
+  // safety: never leave content invisible
+  setTimeout(() => els.forEach((e) => e.classList.add("in")), 1600);
+})();

@@ -64,7 +64,7 @@ def _require_key():
     if not os.environ.get("GROQ_API_KEY"):
         raise HTTPException(
             status_code=503,
-            detail="The server has no GROQ_API_KEY configured. Set it in the Space secrets.",
+            detail="The analysis service isn't configured yet. Please try again later.",
         )
 
 

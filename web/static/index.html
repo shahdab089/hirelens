@@ -21,16 +21,18 @@
         <a href="#analyze">Analyze</a>
         <a href="#patterns" id="nav-patterns">Patterns</a>
         <a href="#how">How it works</a>
-        <a class="btn btn-ghost" href="https://console.groq.com" target="_blank" rel="noopener">Powered by Groq</a>
+        <a class="btn btn-primary btn-sm" href="#analyze">Analyze →</a>
       </nav>
     </div>
   </header>
 
   <!-- HERO -->
   <section class="hero" id="top">
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
     <div class="hero-inner">
       <div class="badge">AI résumé ↔ job-fit analysis</div>
-      <h1>Find out <em>why</em> your applications get rejected.</h1>
+      <h1>Find out <em>why</em> your applications get <span class="rotator">rejected</span>.</h1>
       <p class="lede">
         Paste your résumé and a job description. Get a brutally honest fit score,
         the single most likely reason it gets filtered out, and concrete fixes —
@@ -49,7 +51,7 @@
     <div class="container">
       <h2 class="section-title">🔍 Analyze an application</h2>
       <div class="grid-2">
-        <div class="card input-card">
+        <div class="card input-card reveal">
           <div class="input-head">
             <h3>📄 Résumé</h3>
             <label class="file-btn">Upload
@@ -58,7 +60,7 @@
           </div>
           <textarea id="resume-text" placeholder="Paste your résumé text here…"></textarea>
         </div>
-        <div class="card input-card">
+        <div class="card input-card reveal">
           <div class="input-head">
             <h3>💼 Job description</h3>
             <label class="file-btn">Upload
@@ -156,16 +158,16 @@
     <div class="container">
       <h2 class="section-title">How it works</h2>
       <div class="grid-3">
-        <div class="card step"><div class="step-n">1</div><h3>Parse</h3><p>An LLM extracts structured skills, seniority, and requirements from your résumé and the job description.</p></div>
-        <div class="card step"><div class="step-n">2</div><h3>Score</h3><p>It scores fit across four dimensions — skills, seniority, ATS keywords, and domain — and finds your matched vs. missing requirements.</p></div>
-        <div class="card step"><div class="step-n">3</div><h3>Diagnose</h3><p>It names the single most likely rejection stage and gives you concrete, specific fixes — plus the pattern across all your applications.</p></div>
+        <div class="card step reveal"><div class="step-n">1</div><h3>Parse</h3><p>AI extracts structured skills, seniority, and requirements from your résumé and the job description.</p></div>
+        <div class="card step reveal"><div class="step-n">2</div><h3>Score</h3><p>It scores fit across four dimensions — skills, seniority, ATS keywords, and domain — and finds your matched vs. missing requirements.</p></div>
+        <div class="card step reveal"><div class="step-n">3</div><h3>Diagnose</h3><p>It names the single most likely rejection stage and gives you concrete, specific fixes — plus the pattern across all your applications.</p></div>
       </div>
     </div>
   </section>
 
   <footer class="footer">
     <div class="container">
-      <p><b>Hirelens</b> · open source · powered by Groq (Llama 3.3)</p>
+      <p><b>Hirelens</b> · AI-powered résumé &amp; job-fit analysis</p>
       <p class="fine">Not affiliated with any employer or ATS vendor. For guidance only.</p>
     </div>
   </footer>
