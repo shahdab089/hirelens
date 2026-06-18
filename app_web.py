@@ -20,11 +20,10 @@ from pydantic import BaseModel
 
 from analytics.patterns import build_report
 from core.contacts import extract_contacts
-from core.diagnosis import diagnose
 from core.outreach import draft_outreach
-from core.parsing import extract_text, parse_jd, parse_resume
+from core.parsing import extract_text, parse_both
 from core.schema import ApplicationRecord
-from core.scoring import score
+from core.scoring import score_and_diagnose
 from storage import load_by_client, save, set_outcome
 
 BASE = Path(__file__).parent
@@ -86,10 +85,8 @@ def api_analyze(req: AnalyzeReq):
     if not req.resume_text.strip() or not req.jd_text.strip():
         raise HTTPException(400, "Please provide both a résumé and a job description.")
     try:
-        resume = parse_resume(req.resume_text)
-        jd = parse_jd(req.jd_text)
-        fit = score(resume, jd)
-        diag = diagnose(fit, resume, jd)
+        resume, jd = parse_both(req.resume_text, req.jd_text)
+        fit, diag = score_and_diagnose(resume, jd)
     except ValueError as err:
         raise HTTPException(400, f"Could not parse the inputs: {err}")
     except Exception as err:  # noqa: BLE001

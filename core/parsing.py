@@ -116,6 +116,80 @@ def _llm_parse(text: str, model_cls: Type[BaseModel], retries: int = 2) -> dict:
     raise RuntimeError(f"LLM parse failed after {retries + 1} attempts: {last_err}")
 
 
+def _slim_schema(model_cls: Type[BaseModel]) -> dict:
+    """Schema with raw_text removed (we attach raw_text ourselves afterward)."""
+    schema = model_cls.model_json_schema()
+    schema.get("properties", {}).pop("raw_text", None)
+    if isinstance(schema.get("required"), list):
+        schema["required"] = [f for f in schema["required"] if f != "raw_text"]
+    return schema
+
+
+def _cap(text: str, n: int = 4000) -> str:
+    """Trim very long text so the parse prompt stays bounded."""
+    text = text or ""
+    return text if len(text) <= n else text[:n] + " …[truncated]"
+
+
+def parse_both(resume_text: str, jd_text: str, retries: int = 2) -> tuple[ParsedResume, ParsedJD]:
+    """
+    Parse résumé AND job description in a SINGLE Groq call.
+
+    Halves the number of LLM round-trips per analysis (4 calls -> 2) so the whole
+    pipeline fits inside the free tier's per-minute token budget. The full,
+    uncapped source text is still preserved as each model's raw_text.
+    """
+    client = _get_client()
+    resume_schema = json.dumps(_slim_schema(ParsedResume))
+    jd_schema = json.dumps(_slim_schema(ParsedJD))
+
+    prompt = (
+        "Extract structured data from BOTH the résumé and the job description "
+        "below. Return ONE JSON object with exactly two keys: 'resume' and 'job'.\n\n"
+        f"'resume' must match this JSON schema:\n{resume_schema}\n\n"
+        f"'job' must match this JSON schema:\n{jd_schema}\n\n"
+        "Rules: only use information present in each text; use null / empty lists "
+        "when something is absent; do not invent skills or requirements. Do NOT "
+        "include any 'raw_text' field — omit it entirely. Keep lists concise.\n\n"
+        f"=== RÉSUMÉ ===\n{_cap(resume_text)}\n\n"
+        f"=== JOB DESCRIPTION ===\n{_cap(jd_text)}"
+    )
+
+    last_err: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            response = client.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=[
+                    {"role": "system", "content": "You output only valid JSON."},
+                    {"role": "user", "content": prompt},
+                ],
+                response_format={"type": "json_object"},
+                temperature=0,
+                max_tokens=1536,
+            )
+            data = json.loads(response.choices[0].message.content)
+            break
+        except Exception as err:  # noqa: BLE001
+            last_err = err
+            if attempt < retries:
+                time.sleep(1.5 * (attempt + 1))
+    else:
+        raise RuntimeError(f"LLM parse failed after {retries + 1} attempts: {last_err}")
+
+    rdata = data.get("resume") or {}
+    jdata = data.get("job") or {}
+    rdata["raw_text"] = resume_text  # preserve the full, uncapped source text
+    jdata["raw_text"] = jd_text
+    if not str(jdata.get("title") or "").strip():
+        jdata["title"] = "Unknown role"  # ParsedJD.title is required
+
+    try:
+        return ParsedResume(**rdata), ParsedJD(**jdata)
+    except ValidationError as err:
+        raise ValueError(f"Parsed data did not match the schema: {err}") from err
+
+
 def parse_resume(text: str) -> ParsedResume:
     """Parses resume text into a ParsedResume model."""
     data = _llm_parse(text, ParsedResume)

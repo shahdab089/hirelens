@@ -14,7 +14,7 @@ import json
 import re
 
 from .llm import chat_json
-from .schema import FitScore, ParsedJD, ParsedResume, SubScore
+from .schema import Diagnosis, FitScore, ParsedJD, ParsedResume, RejectionStage, SubScore
 
 SUBSCORE_NAMES = ["skills", "seniority", "keywords_ats", "domain"]
 
@@ -215,3 +215,135 @@ def score(resume: ParsedResume, jd: ParsedJD) -> FitScore:
         matched_skills=final_matched,
         missing_skills=final_missing,
     )
+
+
+def _build_fit(data: dict, resume: ParsedResume, fallback_missing: list[str], fallback_matched: list[str]) -> FitScore:
+    """Build a FitScore from a model response dict (shared by score + combined)."""
+    subscores: list[SubScore] = []
+    seen = set()
+    for item in data.get("subscores", []):
+        name = item.get("name")
+        if name in SUBSCORE_NAMES and name not in seen:
+            seen.add(name)
+            subscores.append(
+                SubScore(
+                    name=name,
+                    score=_clamp01(item.get("score", 0.0)),
+                    rationale=str(item.get("rationale", "")),
+                )
+            )
+    for name in SUBSCORE_NAMES:
+        if name not in seen:
+            subscores.append(SubScore(name=name, score=0.0, rationale="Not assessed."))
+
+    overall = data.get("overall")
+    if overall is None:
+        overall = sum(s.score for s in subscores) / len(subscores)
+
+    raw_matched = [str(s) for s in data.get("matched_skills", []) if str(s).strip()] or fallback_matched
+    raw_missing = [str(s) for s in data.get("missing_skills", []) if str(s).strip()] or fallback_missing
+    final_missing, final_matched = _keyword_rescue(raw_missing, raw_matched, resume.raw_text or "")
+
+    return FitScore(
+        overall=_clamp01(overall),
+        subscores=subscores,
+        matched_skills=final_matched,
+        missing_skills=final_missing,
+    )
+
+
+def score_and_diagnose(resume: ParsedResume, jd: ParsedJD) -> tuple[FitScore, Diagnosis]:
+    """
+    Score fit AND diagnose the likely rejection in a SINGLE Groq call.
+
+    Merges what used to be two separate LLM round-trips (score + diagnose) into
+    one, halving token use and latency so the pipeline stays under the free-tier
+    per-minute limit. Used by the web app; the standalone score()/diagnose()
+    remain for the eval harness.
+    """
+    from .diagnosis import _STAGES, _fallback_stage
+
+    matched_skills, missing_skills = _skill_overlap(resume, jd)
+
+    context = {
+        "resume": {
+            "full_text": _cap(resume.raw_text),
+            "extracted_skills": resume.skills,
+            "years_experience": resume.years_experience,
+            "seniority": resume.seniority,
+            "titles": resume.titles,
+        },
+        "job": {
+            "title": jd.title,
+            "full_text": _cap(jd.raw_text),
+            "required_skills": jd.required_skills,
+            "nice_to_have_skills": jd.nice_to_have_skills,
+            "seniority": jd.seniority,
+            "hard_requirements": jd.hard_requirements,
+        },
+    }
+
+    system = (
+        "You are a brutally honest technical recruiter AND career coach. You score "
+        "how well a candidate fits a role, then diagnose why the application most "
+        "likely failed. Output only JSON."
+    )
+    user = (
+        "Do TWO things for this application and return both in one JSON object.\n\n"
+        "PART 1 — SCORE each of exactly these dimensions 0.0-1.0: "
+        f"{SUBSCORE_NAMES}.\n"
+        "CRITICAL — judge everything against the candidate's FULL résumé text "
+        "(skills, work experience, education, AND project descriptions), not just "
+        "the extracted skills list. A requirement is MATCHED if it appears anywhere "
+        "in the résumé, by meaning. Concrete rules:\n"
+        "  • 'Bachelor's degree' is satisfied by B.Tech, B.E., B.S., B.Sc., B.A.,\n"
+        "    or any master's degree (a master's implies a prior bachelor's).\n"
+        "  • 'Bachelor's in CS, Economics, Statistics or related quantitative field'\n"
+        "    is satisfied by any engineering or data-science degree.\n"
+        "  • SQL listed as a skill satisfies 'Advanced SQL'.\n"
+        "  • Snowflake or BigQuery mentioned anywhere satisfies 'modern data warehouses'.\n"
+        "  • A tool named in a project or job bullet counts even if not in the skills list.\n"
+        "Put a requirement in missing_skills ONLY if genuinely absent. When unsure, lean matched.\n"
+        "Seniority calibration: junior ~0-2, mid ~3-5, senior ~5-9, staff/lead ~9+; a "
+        "candidate meets a level if their years are at/above that band's start (6 years "
+        "satisfies 'senior'). Score 0.8+ when years fit; only score low on a clear gap.\n\n"
+        "PART 2 — DIAGNOSE the single most likely rejection stage from exactly this "
+        f"list: {_STAGES}.\n"
+        "- keyword_ats: filtered by an ATS keyword screen.\n"
+        "- seniority_mismatch: ONLY when years fall clearly short of the role's minimum "
+        "(or drastically overqualified). 6 years is NOT a mismatch for a senior role.\n"
+        "- skills_gap: missing required hard skills.\n"
+        "- domain_mismatch: wrong industry/role domain.\n"
+        "- competitive: qualified but likely out-competed.\n"
+        "- likely_fine: no obvious flaw — probably volume/luck.\n"
+        "Decision rule: if overall_fit >= 0.8 and no sub-score < 0.5, prefer 'likely_fine'.\n\n"
+        "Return JSON with this EXACT shape:\n"
+        '{"overall": <float 0-1>, '
+        '"subscores": [{"name": <one of the four>, "score": <float 0-1>, "rationale": <one sentence>}, ...], '
+        '"matched_skills": [<JD requirements satisfied>], '
+        '"missing_skills": [<JD requirements lacked>], '
+        '"likely_stage": <one value from the stage list>, '
+        '"headline": <one brutal, specific sentence>, '
+        '"explanation": <2-4 sentences naming the concrete reason>, '
+        '"top_fixes": [<2-4 concrete, actionable fixes>]}\n\n'
+        f"Application data:\n{json.dumps(context, indent=2)}"
+    )
+
+    data = chat_json(system, user)
+
+    fit = _build_fit(data, resume, missing_skills, matched_skills)
+
+    raw_stage = str(data.get("likely_stage", "")).strip()
+    try:
+        likely_stage = RejectionStage(raw_stage)
+    except ValueError:
+        likely_stage = _fallback_stage(fit)
+
+    diagnosis = Diagnosis(
+        likely_stage=likely_stage,
+        headline=str(data.get("headline", "")).strip() or "Application likely filtered out.",
+        explanation=str(data.get("explanation", "")).strip(),
+        top_fixes=[str(f) for f in data.get("top_fixes", []) if str(f).strip()],
+    )
+
+    return fit, diagnosis
