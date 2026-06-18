@@ -1,0 +1,18 @@
+Aisha Khan
+Full-Stack Engineer
+
+SUMMARY
+Full-stack engineer with 5 years building web apps end to end on the JavaScript
+stack.
+
+EXPERIENCE
+Full-Stack Engineer, Bytenest (2019-Present)
+- Built REST and GraphQL APIs in Node.js/Express.
+- Developed React frontends and integrated them with backend services.
+- Modeled data in MongoDB and tuned queries.
+
+SKILLS
+Node.js, Express, React, JavaScript, MongoDB, REST APIs, Git
+
+EDUCATION
+B.S. Software Engineering, State University

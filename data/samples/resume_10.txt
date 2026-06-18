@@ -1,0 +1,21 @@
+Victor Osei
+Senior Backend Engineer
+
+SUMMARY
+Backend engineer with 10 years building distributed systems in Java. Tech lead
+for a team of six.
+
+EXPERIENCE
+Senior Backend Engineer / Tech Lead, Streamcore (2017-Present)
+- Designed event-driven services in Java and Spring with Kafka.
+- Led architecture for a distributed order-processing system handling 10k req/s.
+- Mentored engineers and owned technical roadmap for the team.
+
+Backend Engineer, Finlytic (2014-2017)
+- Built microservices and REST APIs in Java/Spring.
+
+SKILLS
+Java, Spring, Kafka, Distributed Systems, Microservices, System Design, Technical Leadership
+
+EDUCATION
+M.S. Computer Science, State University

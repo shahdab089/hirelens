@@ -1,0 +1,16 @@
+Frontend Engineer
+Company: Helios Apps
+
+ABOUT THE ROLE
+We need a Frontend Engineer to build our next-generation web app with a modern,
+type-safe stack.
+
+REQUIREMENTS
+- 4+ years of frontend experience.
+- Strong React skills.
+- Production TypeScript experience (required).
+- Experience with Next.js.
+
+NICE TO HAVE
+- GraphQL.
+- Server-side rendering experience.

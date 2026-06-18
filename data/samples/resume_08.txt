@@ -1,0 +1,17 @@
+Henry Adler
+Data Analyst
+
+SUMMARY
+Data analyst with 3 years turning business questions into dashboards and reports.
+
+EXPERIENCE
+Data Analyst, Marketmint (2021-Present)
+- Wrote complex SQL to answer revenue and retention questions.
+- Built and maintained Tableau dashboards used by the leadership team.
+- Automated weekly reporting in Excel.
+
+SKILLS
+SQL, Tableau, Excel, Data Visualization, Reporting
+
+EDUCATION
+B.S. Economics, State University

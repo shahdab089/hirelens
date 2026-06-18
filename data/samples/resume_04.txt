@@ -1,0 +1,21 @@
+Tomas Vidal
+DevOps Engineer
+
+SUMMARY
+DevOps engineer with 6 years automating infrastructure and CI/CD for cloud-native
+teams.
+
+EXPERIENCE
+DevOps Engineer, Streamline Cloud (2019-Present)
+- Managed Kubernetes (EKS) clusters and Terraform-defined AWS infrastructure.
+- Built CI/CD pipelines with GitHub Actions and Docker.
+- Set up observability with Prometheus and Grafana.
+
+Systems Engineer, HostPoint (2017-2019)
+- Automated server provisioning and on-call runbooks.
+
+SKILLS
+AWS, Terraform, Kubernetes, Docker, CI/CD, GitHub Actions, Prometheus, Grafana, Bash
+
+EDUCATION
+B.S. Computer Engineering, State University

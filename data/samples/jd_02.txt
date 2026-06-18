@@ -1,0 +1,15 @@
+Senior Machine Learning Engineer
+Company: Vantix AI
+
+ABOUT THE ROLE
+Join our ML platform team to build and serve deep learning models in production
+at scale. This is a senior, infrastructure-heavy role.
+
+REQUIREMENTS
+- 7+ years of ML/software experience, with 3+ years shipping models to production.
+- Deep expertise in PyTorch.
+- MLOps: model serving, monitoring, and pipelines.
+- Kubernetes and distributed training experience.
+
+NICE TO HAVE
+- Experience with feature stores and real-time inference.

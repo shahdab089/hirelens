@@ -1,0 +1,14 @@
+Junior Frontend Developer
+Company: Maple Studio
+
+ABOUT THE ROLE
+A great first or second job for a frontend developer. You'll pair with senior
+engineers and grow quickly.
+
+REQUIREMENTS
+- 0-2 years of experience (bootcamp grads welcome).
+- Solid HTML, CSS, and JavaScript fundamentals.
+- Familiarity with React.
+
+NICE TO HAVE
+- A portfolio or side projects.

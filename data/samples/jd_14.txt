@@ -1,0 +1,16 @@
+Cloud Security Engineer
+Company: Aerion Cloud
+
+ABOUT THE ROLE
+We're hiring a Cloud Security Engineer to secure our AWS environment and improve
+threat detection.
+
+REQUIREMENTS
+- 6+ years in security engineering.
+- Strong AWS security experience (IAM, VPC, KMS).
+- Threat detection and incident response.
+- Scripting (Python) for automation.
+
+NICE TO HAVE
+- SIEM tuning experience.
+- Penetration testing background.

@@ -1,0 +1,17 @@
+Grace Lim
+QA Engineer (Manual)
+
+SUMMARY
+QA engineer with 4 years of manual testing experience across web and mobile apps.
+
+EXPERIENCE
+QA Engineer, Appworks (2020-Present)
+- Wrote and executed manual test cases and regression suites.
+- Logged and tracked defects in Jira; verified fixes.
+- Coordinated UAT with product owners.
+
+SKILLS
+Manual Testing, Test Cases, Regression Testing, Jira, Bug Reporting, Test Plans
+
+EDUCATION
+B.S. Information Technology, City College

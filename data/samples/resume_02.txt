@@ -1,0 +1,20 @@
+Daniel Cho
+Data Scientist
+
+SUMMARY
+Data scientist with 4 years of experience in analytics and classical machine
+learning, focused on customer churn and forecasting models.
+
+EXPERIENCE
+Data Scientist, BrightRetail (2021-Present)
+- Built churn prediction models with scikit-learn; improved retention targeting.
+- Ran A/B tests and reported results to product stakeholders.
+
+Junior Data Analyst, BrightRetail (2020-2021)
+- Wrote SQL queries and built dashboards.
+
+SKILLS
+Python, pandas, scikit-learn, SQL, matplotlib, Jupyter
+
+EDUCATION
+M.S. Statistics, State University

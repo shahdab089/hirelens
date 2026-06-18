@@ -1,0 +1,21 @@
+Sofia Reyes
+Senior Product Manager
+
+SUMMARY
+Product manager with 9 years shipping B2B SaaS products. Data-driven, owns
+roadmap and cross-functional delivery.
+
+EXPERIENCE
+Senior Product Manager, Cloudgrid (2018-Present)
+- Owned the analytics product roadmap; grew ARR 60% over two years.
+- Ran discovery, wrote specs, and aligned eng/design/sales stakeholders.
+- Used SQL and A/B testing to prioritize the backlog.
+
+Product Manager, Cloudgrid (2015-2018)
+- Launched the reporting module from zero to first paying customers.
+
+SKILLS
+Product Roadmapping, Stakeholder Management, SQL, A/B Testing, Agile, User Research
+
+EDUCATION
+B.S. Industrial Engineering, State University

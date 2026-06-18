@@ -1,0 +1,16 @@
+Senior Backend Engineer
+Company: Northwind Software
+
+ABOUT THE ROLE
+We're hiring a Senior Backend Engineer to own core services in our payments
+platform. You'll design APIs, model data, and keep things fast and reliable.
+
+REQUIREMENTS
+- 6+ years of backend engineering experience.
+- Strong Python and Django (or Django REST Framework).
+- Production experience with PostgreSQL.
+- Hands-on AWS deployment experience.
+
+NICE TO HAVE
+- Redis or other caching layers.
+- Docker / container orchestration.

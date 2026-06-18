@@ -1,0 +1,14 @@
+Frontend Engineer
+Company: Brightpath (applications screened by ATS)
+
+ABOUT THE ROLE
+Frontend Engineer to build customer-facing web applications.
+
+REQUIREMENTS
+- 4+ years of experience as a Frontend Engineer.
+- Proficiency in JavaScript and TypeScript.
+- Strong experience with React.
+- Experience building responsive design / responsive web applications.
+- Familiarity with Node.js and REST APIs.
+
+Our applicant tracking system screens resumes for the exact keywords above.

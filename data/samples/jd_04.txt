@@ -1,0 +1,16 @@
+Site Reliability / DevOps Engineer
+Company: Orbit Logistics
+
+ABOUT THE ROLE
+We're looking for a DevOps/SRE to own our cloud infrastructure and deployment
+pipelines and keep production reliable.
+
+REQUIREMENTS
+- 5+ years in DevOps/SRE.
+- Strong AWS experience.
+- Infrastructure-as-code with Terraform.
+- Kubernetes in production.
+
+NICE TO HAVE
+- Observability tooling (Prometheus/Grafana).
+- CI/CD pipeline design.

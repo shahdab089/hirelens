@@ -1,0 +1,15 @@
+Software Engineer in Test (SDET)
+Company: Quanta Systems
+
+ABOUT THE ROLE
+We need an SDET to build automated test frameworks and integrate them into our
+CI pipeline.
+
+REQUIREMENTS
+- 3+ years in test automation.
+- Strong Selenium experience.
+- Python test automation (pytest or similar).
+- Experience wiring tests into CI pipelines.
+
+NICE TO HAVE
+- API testing and performance testing.

@@ -1,0 +1,15 @@
+Backend Software Engineer
+Company: Ledgerline
+
+ABOUT THE ROLE
+We're hiring a Backend Software Engineer to build microservices for our financial
+platform.
+
+REQUIREMENTS
+- 3+ years of backend software engineering.
+- Strong Java and Spring Boot.
+- Experience designing microservices and REST APIs.
+- Solid understanding of relational databases.
+
+NICE TO HAVE
+- Kafka or other messaging systems.

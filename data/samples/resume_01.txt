@@ -1,0 +1,21 @@
+Priya Nair
+Senior Backend Engineer
+
+SUMMARY
+Backend engineer with 8 years building and scaling Python web services. Owned
+payment and billing systems serving 2M+ monthly active users.
+
+EXPERIENCE
+Senior Backend Engineer, PayStack Systems (2019-Present)
+- Led the rewrite of the billing service in Django, cutting p95 latency 40%.
+- Designed PostgreSQL schemas and Redis caching for high-throughput APIs.
+- Deployed and monitored services on AWS (ECS, RDS, CloudWatch).
+
+Backend Engineer, Cartway (2016-2019)
+- Built REST APIs in Django REST Framework consumed by web and mobile clients.
+
+SKILLS
+Python, Django, Django REST Framework, PostgreSQL, Redis, AWS, Docker, REST APIs
+
+EDUCATION
+B.S. Computer Science, State University

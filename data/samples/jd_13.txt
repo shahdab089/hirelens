@@ -1,0 +1,14 @@
+Android Developer
+Company: Vellum Mobile
+
+ABOUT THE ROLE
+We're hiring an Android Developer to build and own our native Android app.
+
+REQUIREMENTS
+- 3+ years of native Android development.
+- Strong Kotlin.
+- Experience with Jetpack Compose and the Android SDK.
+- Familiarity with the Google Play release process.
+
+NICE TO HAVE
+- Experience with Android architecture components.

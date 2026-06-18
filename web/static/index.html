@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hirelens — See why you're not getting hired</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>%F0%9F%94%8D</text></svg>" />
+  <meta name="description" content="Hirelens — paste a résumé and a job description. Get a brutally honest fit score, the likely reason it gets rejected, and concrete fixes. Powered by AI." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <!-- NAV -->
+  <header class="nav">
+    <div class="nav-inner">
+      <a class="brand" href="#top">🔍 <span>Hirelens</span></a>
+      <nav class="nav-links">
+        <a href="#analyze">Analyze</a>
+        <a href="#patterns" id="nav-patterns">Patterns</a>
+        <a href="#how">How it works</a>
+        <a class="btn btn-ghost" href="https://console.groq.com" target="_blank" rel="noopener">Powered by Groq</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- HERO -->
+  <section class="hero" id="top">
+    <div class="hero-inner">
+      <div class="badge">AI résumé ↔ job-fit analysis</div>
+      <h1>Find out <em>why</em> your applications get rejected.</h1>
+      <p class="lede">
+        Paste your résumé and a job description. Get a brutally honest fit score,
+        the single most likely reason it gets filtered out, and concrete fixes —
+        then watch the pattern emerge across every role you analyze.
+      </p>
+      <div class="hero-cta">
+        <a class="btn btn-primary" href="#analyze">Analyze an application →</a>
+        <button class="btn btn-ghost" id="btn-try-sample">Try a live sample</button>
+      </div>
+      <div class="hero-meta">No sign-up · Free · Your data stays in your browser</div>
+    </div>
+  </section>
+
+  <!-- ANALYZE -->
+  <section class="section" id="analyze">
+    <div class="container">
+      <h2 class="section-title">🔍 Analyze an application</h2>
+      <div class="grid-2">
+        <div class="card input-card">
+          <div class="input-head">
+            <h3>📄 Résumé</h3>
+            <label class="file-btn">Upload
+              <input type="file" id="resume-file" accept=".pdf,.docx,.txt" hidden />
+            </label>
+          </div>
+          <textarea id="resume-text" placeholder="Paste your résumé text here…"></textarea>
+        </div>
+        <div class="card input-card">
+          <div class="input-head">
+            <h3>💼 Job description</h3>
+            <label class="file-btn">Upload
+              <input type="file" id="jd-file" accept=".pdf,.docx,.txt" hidden />
+            </label>
+          </div>
+          <textarea id="jd-text" placeholder="Paste the job description here…"></textarea>
+        </div>
+      </div>
+      <div class="analyze-bar">
+        <select id="sample-select" class="select"><option value="">— Load a built-in sample —</option></select>
+        <button class="btn btn-primary btn-lg" id="btn-analyze">🚀 Analyze fit</button>
+      </div>
+      <div id="error-box" class="error-box" hidden></div>
+    </div>
+  </section>
+
+  <!-- RESULTS -->
+  <section class="section results" id="results" hidden>
+    <div class="container">
+      <h2 class="section-title">Results</h2>
+      <div class="grid-results">
+        <div class="card gauge-card">
+          <h3>Overall fit</h3>
+          <div class="gauge-wrap"><canvas id="gauge"></canvas><div class="gauge-num" id="gauge-num">—</div></div>
+          <div id="sample-truth" class="truth" hidden></div>
+        </div>
+        <div class="card">
+          <h3>Dimension scores</h3>
+          <div id="subscores"></div>
+        </div>
+      </div>
+
+      <div class="grid-2 skills-row">
+        <div class="card">
+          <h3>✅ Matched <span id="matched-count" class="count"></span></h3>
+          <div id="matched-chips" class="chips"></div>
+        </div>
+        <div class="card">
+          <h3>❌ Missing <span id="missing-count" class="count"></span></h3>
+          <div id="missing-chips" class="chips"></div>
+        </div>
+      </div>
+
+      <div class="card diagnosis" id="diagnosis-card">
+        <div class="diag-head">
+          <h3>🩺 Diagnosis</h3>
+          <span class="stage-badge" id="stage-badge">—</span>
+        </div>
+        <p class="diag-headline" id="diag-headline"></p>
+        <p class="diag-explanation" id="diag-explanation"></p>
+        <h4>🛠️ Top fixes</h4>
+        <ul id="diag-fixes"></ul>
+        <div class="log-row">
+          <select id="log-outcome" class="select">
+            <option value="unknown">Outcome (if known)</option>
+            <option value="rejected">rejected</option>
+            <option value="interview">interview</option>
+            <option value="ghosted">ghosted</option>
+            <option value="offer">offer</option>
+          </select>
+          <button class="btn btn-ghost" id="btn-log">💾 Save to my patterns</button>
+          <span id="log-status" class="log-status"></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PATTERNS -->
+  <section class="section" id="patterns">
+    <div class="container">
+      <h2 class="section-title">📊 Your patterns <button class="btn btn-ghost btn-sm" id="btn-refresh">Refresh</button></h2>
+      <div id="patterns-empty" class="empty">No applications logged yet. Analyze one and hit <b>Save to my patterns</b> to start building your profile.</div>
+      <div id="patterns-body" hidden>
+        <div class="metrics">
+          <div class="metric"><div class="metric-num" id="m-total">0</div><div class="metric-label">Applications</div></div>
+          <div class="metric"><div class="metric-num" id="m-fit">0%</div><div class="metric-label">Average fit</div></div>
+          <div class="metric"><div class="metric-num" id="m-stage">—</div><div class="metric-label">Top bottleneck</div></div>
+        </div>
+        <div class="card insight" id="insight"></div>
+        <div class="grid-2">
+          <div class="card"><h3>Rejection stages</h3><canvas id="chart-stages"></canvas></div>
+          <div class="card"><h3>Outcomes</h3><canvas id="chart-outcomes"></canvas></div>
+        </div>
+        <div class="card">
+          <h3>History</h3>
+          <div class="table-wrap"><table id="history-table"><thead><tr><th>Role</th><th>Company</th><th>Fit</th><th>Stage</th><th>Outcome</th><th>Date</th></tr></thead><tbody></tbody></table></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HOW IT WORKS -->
+  <section class="section how" id="how">
+    <div class="container">
+      <h2 class="section-title">How it works</h2>
+      <div class="grid-3">
+        <div class="card step"><div class="step-n">1</div><h3>Parse</h3><p>An LLM extracts structured skills, seniority, and requirements from your résumé and the job description.</p></div>
+        <div class="card step"><div class="step-n">2</div><h3>Score</h3><p>It scores fit across four dimensions — skills, seniority, ATS keywords, and domain — and finds your matched vs. missing requirements.</p></div>
+        <div class="card step"><div class="step-n">3</div><h3>Diagnose</h3><p>It names the single most likely rejection stage and gives you concrete, specific fixes — plus the pattern across all your applications.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="container">
+      <p><b>Hirelens</b> · open source · powered by Groq (Llama 3.3)</p>
+      <p class="fine">Not affiliated with any employer or ATS vendor. For guidance only.</p>
+    </div>
+  </footer>
+
+  <div id="loading" class="loading" hidden><div class="spinner"></div><div>Reading, scoring & diagnosing…</div></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

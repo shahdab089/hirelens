@@ -1,0 +1,15 @@
+Staff Backend Engineer
+Company: Highline Payments
+
+ABOUT THE ROLE
+We're hiring a Staff Backend Engineer to set technical direction for our core
+platform and mentor senior engineers.
+
+REQUIREMENTS
+- 9+ years of backend experience.
+- Deep Java and distributed systems expertise.
+- Experience with Kafka or similar streaming systems.
+- Demonstrated technical leadership across teams.
+
+NICE TO HAVE
+- Payments or fintech background.

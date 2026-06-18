@@ -1,0 +1,15 @@
+Senior Product Manager
+Company: Datawing
+
+ABOUT THE ROLE
+We're hiring a Senior Product Manager to own a data-heavy product area and drive
+it from strategy through delivery.
+
+REQUIREMENTS
+- 7+ years in product management.
+- Strong roadmapping and stakeholder management.
+- Comfortable with data; able to write SQL.
+- Experience running experiments / A/B tests.
+
+NICE TO HAVE
+- B2B SaaS background.

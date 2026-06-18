@@ -1,0 +1,21 @@
+Leo Martin
+Junior Frontend Developer
+
+SUMMARY
+Career-changer with 1 year of frontend experience after completing a full-time
+coding bootcamp. Comfortable building React components from designs.
+
+EXPERIENCE
+Junior Frontend Developer, Tinker Apps (2023-Present)
+- Built UI features in React and JavaScript from Figma mockups.
+- Wrote responsive layouts with CSS and Flexbox.
+
+PROJECTS
+- Personal portfolio and two React side projects deployed to Netlify.
+
+SKILLS
+HTML, CSS, JavaScript, React (basics), Git
+
+EDUCATION
+Full-Stack Web Development Bootcamp, CodeCamp (2022)
+B.A. History, City College

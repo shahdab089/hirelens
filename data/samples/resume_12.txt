@@ -1,0 +1,15 @@
+J. Carter
+Web Dev
+
+Did web dev for ~5 yrs. Strong with the MERN stack. Comfortable across the whole
+pipeline, shipped lots of features, fast learner, team player.
+
+Stuff I've done:
+- Built SPAs and RWD sites, mobile-first.
+- Wrote a bunch of JS and TS, plus some Node services.
+- Worked with state mgmt, hooks, and component libs.
+- CI/CD, unit tests, code reviews.
+
+Tech: JS, TS, RWD, MERN, Node, REST, Git, Agile
+
+Misc: bootcamp grad, open-source contributor, side projects on GitHub.

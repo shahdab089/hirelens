@@ -1,0 +1,19 @@
+Maya Fernandes
+Frontend Engineer
+
+SUMMARY
+Frontend engineer with 5 years building responsive single-page applications.
+
+EXPERIENCE
+Frontend Engineer, Loop Media (2019-Present)
+- Built and maintained a large React + Redux application.
+- Improved page load performance and accessibility scores.
+
+Frontend Developer, Pixelworks (2018-2019)
+- Implemented UI components in React with JavaScript and CSS.
+
+SKILLS
+React, JavaScript, Redux, CSS, HTML, Webpack, Jest
+
+EDUCATION
+B.A. Information Systems, City College

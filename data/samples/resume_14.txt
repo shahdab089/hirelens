@@ -1,0 +1,18 @@
+Elena Petrov
+Security Engineer
+
+SUMMARY
+Security engineer with 8 years in offensive security and monitoring. Strong
+scripting background.
+
+EXPERIENCE
+Security Engineer, Sentinel Labs (2018-Present)
+- Ran penetration tests and led red-team exercises against web apps.
+- Built detection rules and tuned a SIEM (Splunk) for the SOC.
+- Automated security tooling in Python.
+
+SKILLS
+Penetration Testing, SIEM, Splunk, Python, Threat Detection, Network Security, Linux
+
+EDUCATION
+B.S. Computer Science, State University

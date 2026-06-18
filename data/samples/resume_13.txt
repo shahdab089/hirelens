@@ -1,0 +1,17 @@
+Noah Bennett
+iOS Developer
+
+SUMMARY
+Mobile engineer with 4 years building native iOS applications.
+
+EXPERIENCE
+iOS Developer, Pocketly (2020-Present)
+- Built and shipped native iOS apps in Swift using UIKit and SwiftUI.
+- Integrated REST APIs and handled offline caching with Core Data.
+- Published and maintained apps on the App Store.
+
+SKILLS
+Swift, UIKit, SwiftUI, Core Data, Xcode, REST APIs, iOS
+
+EDUCATION
+B.S. Computer Science, City College

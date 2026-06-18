@@ -1,0 +1,15 @@
+Data Analyst
+Company: Cedar Health
+
+ABOUT THE ROLE
+Join our analytics team to support product and operations with clear, reliable
+data analysis.
+
+REQUIREMENTS
+- 2+ years as a data analyst.
+- Strong SQL.
+- Dashboarding with Tableau.
+- Some Python for data analysis (pandas).
+
+NICE TO HAVE
+- Healthcare data experience.
