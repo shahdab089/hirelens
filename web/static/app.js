@@ -61,10 +61,14 @@ async function analyze() {
 
   $("loading").hidden = false;
   try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 60000);
     const res = await fetch("/api/analyze", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ resume_text, jd_text }),
+      signal: controller.signal,
     });
+    clearTimeout(timer);
     const data = await res.json();
     if (!res.ok) { showError(data.detail || "Analysis failed."); return; }
     lastRecord = data.record;
@@ -122,6 +126,50 @@ function renderResults(d) {
   const fixes = $("diag-fixes"); fixes.innerHTML = "";
   (diag.top_fixes || []).forEach((f) => { const li = document.createElement("li"); li.textContent = f; fixes.appendChild(li); });
   $("log-status").textContent = "";
+
+  // reach-out: show contacts found in the posting, reset the outreach draft
+  renderContacts(d.contacts || {});
+  $("outreach-box").hidden = true;
+  const ob = $("btn-outreach");
+  ob.disabled = false;
+  ob.textContent = "✨ Generate outreach message";
+}
+
+function renderContacts(c) {
+  const box = $("contacts-box");
+  box.innerHTML = "";
+  const emails = c.emails || [], phones = c.phones || [], links = c.application_links || [];
+  if (!emails.length && !phones.length && !links.length) {
+    box.innerHTML = "<div class='no-contacts'>No contact details found in this posting — use the outreach draft below to reach out via LinkedIn or the company site.</div>";
+    return;
+  }
+  const line = (label, html) => `<div class="contact-line"><span class="label">${label}</span>${html}</div>`;
+  if (emails.length) box.insertAdjacentHTML("beforeend", line("Email", emails.map((e) => `<a href="mailto:${encodeURIComponent(e)}">${escapeHtml(e)}</a>`).join(", ")));
+  if (phones.length) box.insertAdjacentHTML("beforeend", line("Phone", phones.map(escapeHtml).join(", ")));
+  if (links.length) box.insertAdjacentHTML("beforeend", line("Apply", links.map((u) => `<a href="${escapeHtml(u)}" target="_blank" rel="noopener">${escapeHtml(u)}</a>`).join("<br>")));
+}
+
+async function generateOutreach() {
+  if (!lastRecord) return;
+  const btn = $("btn-outreach");
+  btn.disabled = true; btn.textContent = "Generating…";
+  try {
+    const res = await fetch("/api/outreach", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ record: lastRecord }),
+    });
+    const d = await res.json();
+    if (!res.ok) { showError(d.detail || "Could not generate outreach."); btn.disabled = false; btn.textContent = "✨ Generate outreach message"; return; }
+    $("out-subject").textContent = d.email_subject;
+    $("out-body").textContent = d.email_body;
+    $("out-note").textContent = d.linkedin_note;
+    $("outreach-box").hidden = false;
+    btn.textContent = "🔄 Regenerate";
+    btn.disabled = false;
+  } catch (e) {
+    showError("Network error generating outreach.");
+    btn.disabled = false; btn.textContent = "✨ Generate outreach message";
+  }
 }
 
 function renderChips(id, items, cls) {
@@ -211,7 +259,19 @@ function escapeHtml(s) { const d = document.createElement("div"); d.textContent 
 // ------------------------------------------------------------------ wire ------
 $("btn-analyze").addEventListener("click", analyze);
 $("btn-log").addEventListener("click", logApplication);
+$("btn-outreach").addEventListener("click", generateOutreach);
 $("btn-refresh").addEventListener("click", loadPatterns);
+
+// copy buttons (delegated)
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest(".copy-btn");
+  if (!btn) return;
+  const text = $(btn.dataset.target).textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const orig = btn.textContent; btn.textContent = "Copied ✓";
+    setTimeout(() => { btn.textContent = orig; }, 1500);
+  });
+});
 $("resume-file").addEventListener("change", (e) => extractFile(e.target, $("resume-text")));
 $("jd-file").addEventListener("change", (e) => extractFile(e.target, $("jd-text")));
 $("sample-select").addEventListener("change", (e) => {

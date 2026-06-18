@@ -19,7 +19,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from analytics.patterns import build_report
+from core.contacts import extract_contacts
 from core.diagnosis import diagnose
+from core.outreach import draft_outreach
 from core.parsing import extract_text, parse_jd, parse_resume
 from core.schema import ApplicationRecord
 from core.scoring import score
@@ -57,6 +59,10 @@ class LogReq(BaseModel):
 class OutcomeReq(BaseModel):
     id: str
     outcome: str
+
+
+class OutreachReq(BaseModel):
+    record: dict
 
 
 # --------------------------------------------------------------------- helpers -
@@ -106,9 +112,25 @@ def api_analyze(req: AnalyzeReq):
         "stage_label": STAGE_LABELS.get(diag.likely_stage.value, diag.likely_stage.value),
         "jd_title": jd.title,
         "jd_company": jd.company,
+        # contacts the recruiter published in the posting (regex over pasted text).
+        "contacts": extract_contacts(req.jd_text).model_dump(),
         # full serialized record so the client can log it without re-running.
         "record": record.model_dump(mode="json"),
     }
+
+
+@app.post("/api/outreach")
+def api_outreach(req: OutreachReq):
+    _require_key()
+    try:
+        record = ApplicationRecord.model_validate(req.record)
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(400, f"Invalid record: {err}")
+    try:
+        draft = draft_outreach(record.resume, record.jd, record.fit)
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(500, f"Could not generate outreach: {err}")
+    return draft.model_dump()
 
 
 @app.post("/api/extract")

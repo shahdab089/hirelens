@@ -118,6 +118,17 @@ textarea:focus { outline: none; border-color: var(--brand); }
 .log-row { display: flex; gap: 12px; align-items: center; margin-top: 22px; flex-wrap: wrap; padding-top: 18px; border-top: 1px solid var(--border); }
 .log-status { color: var(--brand); font-size: 0.88rem; }
 
+/* REACH OUT */
+.reachout { margin-top: 20px; }
+.contacts-box { margin-bottom: 16px; display: flex; flex-direction: column; gap: 8px; }
+.contact-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.contact-line .label { color: var(--muted); font-size: 0.85rem; min-width: 64px; }
+.contact-line a { color: var(--brand-2); word-break: break-all; }
+.no-contacts { color: var(--muted); font-size: 0.9rem; }
+.outreach-block { margin-top: 16px; }
+.outreach-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; color: var(--muted); font-size: 0.85rem; font-weight: 600; }
+.outreach-text { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; white-space: pre-wrap; font-size: 0.92rem; line-height: 1.5; }
+
 /* PATTERNS */
 .empty { color: var(--muted); padding: 28px; text-align: center; background: var(--card); border: 1px dashed var(--border); border-radius: var(--radius); }
 .metrics { display: grid; grid-template-columns: repeat(3,1fr); gap: 20px; margin-bottom: 20px; }

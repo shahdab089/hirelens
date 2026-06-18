@@ -95,3 +95,18 @@ class PatternReport(BaseModel):
     dominant_stage: RejectionStage     # the bottleneck across all apps
     insight: str                       # "You get filtered at keyword stage on 80% of infra roles"
     recommended_focus: list[str]
+
+
+# ---------- Outreach layer (contacts the recruiter published + AI draft) ----------
+
+class ExtractedContacts(BaseModel):
+    """Contact details the recruiter voluntarily put in the job posting text."""
+    emails: list[str] = Field(default_factory=list)
+    phones: list[str] = Field(default_factory=list)
+    application_links: list[str] = Field(default_factory=list)
+
+
+class OutreachDraft(BaseModel):
+    email_subject: str
+    email_body: str
+    linkedin_note: str
