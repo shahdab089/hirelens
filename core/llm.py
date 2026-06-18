@@ -11,7 +11,7 @@ from typing import Any
 
 from groq import Groq
 
-GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.1-8b-instant")
 
 _client: Groq | None = None
 
@@ -26,7 +26,7 @@ def get_client() -> Groq:
     return _client
 
 
-def chat_json(system: str, user: str, retries: int = 2) -> dict[str, Any]:
+def chat_json(system: str, user: str, retries: int = 2, max_tokens: int = 1536) -> dict[str, Any]:
     """Call Groq in JSON mode and return the parsed JSON object, with retries."""
     client = get_client()
     last_err: Exception | None = None
@@ -40,6 +40,7 @@ def chat_json(system: str, user: str, retries: int = 2) -> dict[str, Any]:
                 ],
                 response_format={"type": "json_object"},
                 temperature=0,
+                max_tokens=max_tokens,
             )
             return json.loads(response.choices[0].message.content)
         except Exception as err:  # noqa: BLE001 — retry on any transient/parse error

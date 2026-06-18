@@ -20,7 +20,7 @@ from pydantic import BaseModel, ValidationError
 from .schema import ParsedJD, ParsedResume
 
 # Free, capable model on Groq's hosted tier. Override with GROQ_MODEL if needed.
-GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.1-8b-instant")
 
 _client: Groq | None = None
 
@@ -74,13 +74,24 @@ def extract_text(file_path: str) -> str:
 def _llm_parse(text: str, model_cls: Type[BaseModel], retries: int = 2) -> dict:
     """Call Groq in JSON mode and return parsed JSON matching model_cls's schema."""
     client = _get_client()
-    schema_json = json.dumps(model_cls.model_json_schema())
+
+    # Strip raw_text from the schema we show the model: we always overwrite it
+    # ourselves afterward, and asking the model to echo the entire résumé back
+    # into raw_text blows past max_tokens and breaks JSON generation.
+    schema = model_cls.model_json_schema()
+    schema.get("properties", {}).pop("raw_text", None)
+    if isinstance(schema.get("required"), list):
+        schema["required"] = [f for f in schema["required"] if f != "raw_text"]
+    schema_json = json.dumps(schema)
+
     prompt = (
         "Extract structured information from the text below into JSON that "
         "strictly matches this JSON schema:\n"
         f"{schema_json}\n\n"
         "Rules: only use information present in the text; use null / empty "
-        "lists when something is absent; do not invent skills or requirements.\n\n"
+        "lists when something is absent; do not invent skills or requirements. "
+        "Do NOT include a 'raw_text' field — omit it entirely. Keep lists "
+        "concise (the most relevant items only).\n\n"
         f"Text:\n{text}"
     )
 
@@ -95,6 +106,7 @@ def _llm_parse(text: str, model_cls: Type[BaseModel], retries: int = 2) -> dict:
                 ],
                 response_format={"type": "json_object"},
                 temperature=0,
+                max_tokens=1024,
             )
             return json.loads(response.choices[0].message.content)
         except (json.JSONDecodeError, Exception) as err:  # noqa: BLE001
