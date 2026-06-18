@@ -20,6 +20,7 @@ from pydantic import BaseModel
 
 from analytics.patterns import build_report
 from core.contacts import extract_contacts
+from core.llm import GroqRateLimit
 from core.outreach import draft_outreach
 from core.parsing import extract_text, parse_both
 from core.schema import ApplicationRecord
@@ -89,6 +90,8 @@ def api_analyze(req: AnalyzeReq):
         fit, diag = score_and_diagnose(resume, jd)
     except ValueError as err:
         raise HTTPException(400, f"Could not parse the inputs: {err}")
+    except GroqRateLimit:
+        raise HTTPException(429, "We're experiencing high demand right now — please wait a minute and try again.")
     except Exception as err:  # noqa: BLE001
         raise HTTPException(500, f"Analysis failed: {err}")
 
@@ -125,6 +128,8 @@ def api_outreach(req: OutreachReq):
         raise HTTPException(400, f"Invalid record: {err}")
     try:
         draft = draft_outreach(record.resume, record.jd, record.fit)
+    except GroqRateLimit:
+        raise HTTPException(429, "We're experiencing high demand right now — please wait a minute and try again.")
     except Exception as err:  # noqa: BLE001
         raise HTTPException(500, f"Could not generate outreach: {err}")
     return draft.model_dump()

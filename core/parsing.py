@@ -17,6 +17,7 @@ import pypdf
 from groq import Groq
 from pydantic import BaseModel, ValidationError
 
+from .llm import complete_json
 from .schema import ParsedJD, ParsedResume
 
 # Free, capable model on Groq's hosted tier. Override with GROQ_MODEL if needed.
@@ -95,25 +96,11 @@ def _llm_parse(text: str, model_cls: Type[BaseModel], retries: int = 2) -> dict:
         f"Text:\n{text}"
     )
 
-    last_err: Exception | None = None
-    for attempt in range(retries + 1):
-        try:
-            response = client.chat.completions.create(
-                model=GROQ_MODEL,
-                messages=[
-                    {"role": "system", "content": "You output only valid JSON."},
-                    {"role": "user", "content": prompt},
-                ],
-                response_format={"type": "json_object"},
-                temperature=0,
-                max_tokens=1024,
-            )
-            return json.loads(response.choices[0].message.content)
-        except (json.JSONDecodeError, Exception) as err:  # noqa: BLE001
-            last_err = err
-            if attempt < retries:
-                time.sleep(1.5 * (attempt + 1))
-    raise RuntimeError(f"LLM parse failed after {retries + 1} attempts: {last_err}")
+    messages = [
+        {"role": "system", "content": "You output only valid JSON."},
+        {"role": "user", "content": prompt},
+    ]
+    return complete_json(messages, max_tokens=1024, retries=retries)
 
 
 def _slim_schema(model_cls: Type[BaseModel]) -> dict:
@@ -155,27 +142,11 @@ def parse_both(resume_text: str, jd_text: str, retries: int = 2) -> tuple[Parsed
         f"=== JOB DESCRIPTION ===\n{_cap(jd_text)}"
     )
 
-    last_err: Exception | None = None
-    for attempt in range(retries + 1):
-        try:
-            response = client.chat.completions.create(
-                model=GROQ_MODEL,
-                messages=[
-                    {"role": "system", "content": "You output only valid JSON."},
-                    {"role": "user", "content": prompt},
-                ],
-                response_format={"type": "json_object"},
-                temperature=0,
-                max_tokens=1536,
-            )
-            data = json.loads(response.choices[0].message.content)
-            break
-        except Exception as err:  # noqa: BLE001
-            last_err = err
-            if attempt < retries:
-                time.sleep(1.5 * (attempt + 1))
-    else:
-        raise RuntimeError(f"LLM parse failed after {retries + 1} attempts: {last_err}")
+    messages = [
+        {"role": "system", "content": "You output only valid JSON."},
+        {"role": "user", "content": prompt},
+    ]
+    data = complete_json(messages, max_tokens=1536, retries=retries)
 
     rdata = data.get("resume") or {}
     jdata = data.get("job") or {}
