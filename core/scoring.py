@@ -217,6 +217,30 @@ def score(resume: ParsedResume, jd: ParsedJD) -> FitScore:
     )
 
 
+_ACQUIRE_VERBS = (
+    "gain experience", "gain hands-on", "learn", "acquire", "take a course",
+    "take courses", "get experience", "build experience", "develop experience",
+    "familiarize", "upskill", "improve your skills in", "improve skills in",
+    "get certified", "certification in", "pursue training", "study",
+)
+
+
+def _clean_fixes(fixes: list[str], resume: ParsedResume) -> list[str]:
+    """Drop fixes that tell the candidate to acquire a skill they already list."""
+    skills = [s.lower() for s in resume.skills if len(s) >= 2]
+    out: list[str] = []
+    for fix in fixes:
+        low = fix.lower()
+        if any(v in low for v in _ACQUIRE_VERBS) and any(
+            re.search(r"\b" + re.escape(sk) + r"\b", low) for sk in skills
+        ):
+            continue  # recommends acquiring something already on the résumé
+        out.append(fix)
+    if not out:  # never leave the user with zero guidance
+        out = ["Re-order and quantify your résumé so the role's key requirements appear first."]
+    return out
+
+
 def _build_fit(data: dict, resume: ParsedResume, fallback_missing: list[str], fallback_matched: list[str]) -> FitScore:
     """Build a FitScore from a model response dict (shared by score + combined)."""
     subscores: list[SubScore] = []
@@ -316,7 +340,13 @@ def score_and_diagnose(resume: ParsedResume, jd: ParsedJD) -> tuple[FitScore, Di
         "- domain_mismatch: wrong industry/role domain.\n"
         "- competitive: qualified but likely out-competed.\n"
         "- likely_fine: no obvious flaw — probably volume/luck.\n"
-        "Decision rule: if overall_fit >= 0.8 and no sub-score < 0.5, prefer 'likely_fine'.\n\n"
+        "Decision rule: if overall_fit >= 0.8 and no sub-score < 0.5, prefer 'likely_fine'.\n"
+        "CRITICAL for top_fixes and explanation: NEVER tell the candidate to gain, "
+        "learn, or get certified in any skill or tool that already appears in their "
+        "résumé or matched_skills (e.g. if Power BI and Tableau are listed, do not "
+        "suggest learning them). Base fixes only on genuine gaps (missing_skills) and "
+        "on positioning/presentation. Do NOT state or assume the candidate's industry "
+        "or employer unless it is explicitly in their résumé.\n\n"
         "Return JSON with this EXACT shape:\n"
         '{"overall": <float 0-1>, '
         '"subscores": [{"name": <one of the four>, "score": <float 0-1>, "rationale": <one sentence>}, ...], '
@@ -343,7 +373,7 @@ def score_and_diagnose(resume: ParsedResume, jd: ParsedJD) -> tuple[FitScore, Di
         likely_stage=likely_stage,
         headline=str(data.get("headline", "")).strip() or "Application likely filtered out.",
         explanation=str(data.get("explanation", "")).strip(),
-        top_fixes=[str(f) for f in data.get("top_fixes", []) if str(f).strip()],
+        top_fixes=_clean_fixes([str(f) for f in data.get("top_fixes", []) if str(f).strip()], resume),
     )
 
     return fit, diagnosis
