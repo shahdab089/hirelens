@@ -4,7 +4,7 @@
 >
 > **Live:** https://hirelens-bvnv.onrender.com (primary) · https://huggingface.co/spaces/shadab089/hirelens (mirror)
 >
-> **Stack in one line:** Vanilla JS + Chart.js frontend → FastAPI backend → a 2-call LLM pipeline on Groq (Llama 3.1 8B primary, 3.3 70B fallback) governed by Pydantic contracts → SQLite storage → Docker on Render / Hugging Face Spaces.
+> **Stack in one line:** Vanilla JS + Chart.js frontend → FastAPI backend → a 2-call LLM pipeline on Anthropic Claude (Haiku 4.5 primary) with a Groq/Llama 3.3 70B fallback, governed by Pydantic contracts → SQLite storage → Docker on Render / Hugging Face Spaces.
 
 This document is written to be read by *you, in an interview*. Every technical term is explained where it first appears. Read it top to bottom and you can defend any layer of the system.
 
@@ -34,7 +34,7 @@ flowchart TD
 
     subgraph Server["FASTAPI BACKEND (app_web.py)"]
         API["/api/analyze · /api/outreach<br/>/api/extract · /api/log · /api/patterns"]
-        KEY[GROQ_API_KEY stays server-side only]
+        KEY[ANTHROPIC_API_KEY + GROQ_API_KEY stay server-side only]
     end
 
     subgraph Core["AI CORE (core/)"]
@@ -47,9 +47,9 @@ flowchart TD
         L[llm.py<br/>complete_json + model fallback]
     end
 
-    subgraph LLM["GROQ CLOUD (LPU inference)"]
-        M1[llama-3.1-8b-instant<br/>PRIMARY]
-        M2[llama-3.3-70b-versatile<br/>FALLBACK]
+    subgraph LLM["LLM PROVIDERS"]
+        M1[Anthropic claude-haiku-4-5<br/>PRIMARY]
+        M2[Groq llama-3.3-70b-versatile<br/>FALLBACK on rate-limit]
     end
 
     subgraph Data["PERSISTENCE"]
@@ -64,8 +64,8 @@ flowchart TD
     S --> G2
     API --> C
     API --> O --> L
-    L -->|JSON mode, temp=0| M1
-    M1 -.->|429 / over budget| M2
+    L -->|temp=0, JSON-coerced| M1
+    M1 -.->|rate-limit / over budget| M2
     API --> DB --> AN --> JS
     JS --> CH
 ```
@@ -88,7 +88,9 @@ flowchart TD
 
 ## 2. What actually happens *inside the LLM* (the part you asked for)
 
-When the backend calls `client.chat.completions.create(...)`, the prompt string we built doesn't go straight into a "brain." It goes through a precise sequence. Here is that sequence, end to end, with the vocabulary you'll be expected to use.
+> **Which model?** The pipeline's **primary** is **Anthropic Claude Haiku 4.5**; the **fallback** is **Groq's Llama 3.3 70B**. The walkthrough below uses the **open Llama fallback** as the worked example because its internals (BPE tokenizer, RoPE, GQA, SwiGLU) are publicly documented and concrete. Claude is also a decoder-only transformer and shares the *same* fundamentals — tokenize → embed → attention stack → autoregressive decode — so every concept here transfers; only the exact tokenizer/architecture details and the JSON-enforcement mechanism (see §2.5) differ.
+
+When the backend calls the provider's create-message API, the prompt string we built doesn't go straight into a "brain." It goes through a precise sequence. Here is that sequence, end to end, with the vocabulary you'll be expected to use.
 
 ### 2.1 Tokenization — text becomes integers
 
@@ -131,13 +133,18 @@ After the final transformer block, the last token's vector is multiplied by an *
 - The chosen token is appended to the sequence and the whole forward pass runs again for the *next* token. This is **autoregressive generation** — the model writes its JSON answer one token at a time, each new token conditioned on everything so far.
 - Generation stops at an end-of-turn token or when we hit **`max_tokens`** (our reserved output budget — 1024–1536 depending on the call). The error you saw earlier, *"max completion tokens reached before generating a valid document,"* was the model running out of this budget mid-JSON.
 
-### 2.5 JSON mode — constrained decoding (why our output is always valid JSON)
+### 2.5 Getting valid JSON — two mechanisms
 
-We pass `response_format={"type": "json_object"}`. This enables **constrained decoding** (a.k.a. grammar-constrained / structured generation): at each decoding step the server **masks out any token that would make the output invalid JSON**, so the only tokens the model is allowed to emit are ones that keep the document well-formed. This is why `json.loads()` on the response almost never throws. It's a hard guarantee at the decoder level, not a polite request in the prompt.
+We need every response to parse with `json.loads()`. The two providers enforce that differently:
 
-### 2.6 Where it runs — Groq's LPU
+- **Groq fallback — constrained decoding.** We pass `response_format={"type": "json_object"}`, which enables **constrained decoding** (a.k.a. grammar-constrained / structured generation): at each decoding step the server **masks out any token that would make the output invalid JSON**, so the only tokens the model can emit keep the document well-formed. It's a hard guarantee at the decoder level.
+- **Anthropic primary — prompted JSON + defensive parse.** Claude Haiku 4.5 is instructed (a strict system rule) to return a single JSON object and nothing else; `_call_anthropic()` then strips any stray markdown fences and `json.loads()` the result, validating it's a dict. With `temperature=0` and an explicit schema in the prompt this is reliable in practice, and a malformed reply simply falls through our retry/fallback path rather than corrupting downstream logic.
 
-Groq serves these models on an **LPU (Language Processing Unit)** — custom inference silicon (not a GPU) designed specifically for the sequential, one-token-at-a-time nature of LLM decoding. The practical upshot for us: **very low latency and high tokens/second**, which is what makes a 2–3 call pipeline feel near-instant to the user. The trade-off is the **free-tier rate limits** (tokens-per-minute and tokens-per-day) that drove much of our engineering (see §6).
+Either way the parsed dict is then validated into a Pydantic model, so a bad response is caught immediately.
+
+### 2.6 Where it runs — Anthropic's API and Groq's LPU
+
+The **primary** calls hit **Anthropic's hosted Claude API**. The **fallback** runs on **Groq's LPU (Language Processing Unit)** — custom inference silicon (not a GPU) designed for the sequential, one-token-at-a-time nature of LLM decoding, giving **very low latency and high tokens/second**. Both providers expose **rate limits** (tokens-per-minute / per-day) on their free or low-cost tiers; because the limits are **independent per provider**, routing primary→fallback across them roughly doubles our effective capacity — which drove much of our reliability engineering (see §6).
 
 ---
 
@@ -219,13 +226,14 @@ Two sub-features, deliberately kept ToS-safe:
 
 ## 4. Reliability engineering (the unglamorous part that makes it real)
 
-### 4.1 Model fallback across separate token buckets (`llm.py`)
+### 4.1 Cross-provider fallback across separate token buckets (`llm.py`)
 
-The free tier rate-limits **per model**. Llama 3.1 8B and Llama 3.3 70B have **independent** token buckets. So `complete_json()` tries the primary (8B) first; if it gets a **rate-limit / over-budget error**, it automatically retries on the **70B fallback**. Two buckets ≈ double the effective free capacity, *and* the fallback happens to be the higher-quality model.
+Rate limits are enforced **per provider**, so Anthropic and Groq have **independent** token buckets. `complete_json()` tries the **primary, Claude Haiku 4.5**, first; if it gets a **rate-limit / over-budget error**, it automatically retries on the **Groq Llama 3.3 70B fallback**. Two providers ≈ double the effective capacity, *and* it keeps the app serving even if one provider has an outage. (A non-rate-limit error — e.g. a missing primary key or a hard API failure — surfaces directly rather than silently downgrading.)
 
 ```python
-_MODELS = ["llama-3.1-8b-instant", "llama-3.3-70b-versatile"]
-# try each model; on a rate-limit, jump straight to the next one
+ANTHROPIC_MODEL     = "claude-haiku-4-5"          # primary
+GROQ_FALLBACK_MODEL = "llama-3.3-70b-versatile"   # fallback on rate-limit
+# try Anthropic; on a rate-limit, fall through to Groq
 ```
 
 ### 4.2 Graceful failure
@@ -249,7 +257,7 @@ _MODELS = ["llama-3.1-8b-instant", "llama-3.3-70b-versatile"]
 
 - **FastAPI** is an async Python web framework with built-in Pydantic request/response validation and auto-generated OpenAPI docs (`/api/docs`).
 - Endpoints: `/api/analyze`, `/api/outreach`, `/api/extract` (file upload → text), `/api/log`, `/api/outcome`, `/api/patterns`, `/api/samples`, `/api/health`.
-- **Security boundary:** the `GROQ_API_KEY` lives **only on the server** as an environment variable. The browser never sees it — clients send plain text, the server makes the authenticated LLM calls. This is the correct pattern; putting an API key in frontend JS would expose it to every visitor.
+- **Security boundary:** the provider keys (`ANTHROPIC_API_KEY`, `GROQ_API_KEY`) live **only on the server** as environment variables. The browser never sees them — clients send plain text, the server makes the authenticated LLM calls. This is the correct pattern; putting an API key in frontend JS would expose it to every visitor.
 - Serves the static frontend (`web/static/`) via `StaticFiles`.
 
 ### 5.2 Frontend — vanilla JS + Chart.js (`web/static/`)
@@ -271,7 +279,7 @@ _MODELS = ["llama-3.1-8b-instant", "llama-3.3-70b-versatile"]
 - **Docker** — `python:3.11-slim` base image. The container runs `uvicorn` (an ASGI server) binding to **`${PORT:-7860}`** — a single trick that makes the *same image* run on **Render** (which injects `$PORT`) and **Hugging Face Spaces** (which expects port 7860).
 - **Render** — connected to the GitHub repo; **auto-redeploys on every `git push` to `main`** (continuous deployment). `render.yaml` is an infrastructure-as-code blueprint defining the service + a `/api/health` health check. Note: the free tier **cold-starts** after ~15 min idle.
 - **Hugging Face Spaces** — a second live mirror, deployed by pushing to a separate `space` git remote.
-- **Secrets** — `GROQ_API_KEY` is set as an environment variable / secret in each platform's dashboard, never committed to git.
+- **Secrets** — `ANTHROPIC_API_KEY` (primary) and `GROQ_API_KEY` (fallback) are set as environment variables / secrets in each platform's dashboard, never committed to git. `render.yaml` declares both as `sync: false`, so they must be entered by hand per environment.
 - **Git hygiene** — when a token had to be embedded in a remote URL for a push, it was **scrubbed back out** afterward (`git remote set-url`).
 
 ---
@@ -306,7 +314,7 @@ _MODELS = ["llama-3.1-8b-instant", "llama-3.3-70b-versatile"]
 ## 8. If an interviewer pushes back — honest trade-offs
 
 - **"Why not RAG / a vector DB?"** — The matching task is bounded (one résumé vs one JD), so the LLM's internal embeddings + attention already do the semantic matching. Adding a vector store would be complexity for no gain. RAG earns its keep when you must retrieve from a *large external corpus*; here there's nothing to retrieve.
-- **"Why the small 8B model?"** — Free-tier daily token budget. The 8B handles the structured task well *because* the deterministic guards catch its mistakes, and the 70B is wired as an automatic fallback for quality. The moment paid billing is on, flipping the default to 70B is a one-line env change.
+- **"Why Claude Haiku as the primary, with Groq as fallback?"** — Haiku 4.5 gives the best quality-per-dollar for strict structured-JSON extraction and the lowest hallucination on résumé/JD tasks, which is exactly what this pipeline needs; the deterministic guards then catch any residual mistakes. Groq's free-tier Llama 3.3 70B is wired as an automatic fallback on rate-limits — an *independent* token bucket that keeps the app serving through throttling or a provider outage. Swapping either model is a one-line env change (`ANTHROPIC_MODEL` / `GROQ_FALLBACK_MODEL`).
 - **"How do you trust the scores?"** — Two ways: deterministic post-correction for factual claims, and an **eval harness** (`evals/`) that runs the scorer over labeled real outcomes and measures whether advanced/offer applications score higher than rejected ones.
 - **"What about hallucination?"** — The guards (`_keyword_rescue`, `_clean_fixes`, `_fallback_stage`, Enum validation, JSON-mode constrained decoding) are layered defenses, each catching a different failure mode before it reaches the user.
 

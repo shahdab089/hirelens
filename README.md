@@ -26,15 +26,18 @@ rejection stage, and concrete fixes.
 - **Pattern recognition** — the dominant bottleneck across everything you log.
 
 ## How It Works
-An LLM (via the free **Groq** API) parses the résumé and JD into structured data,
-scores the fit, and diagnoses the likely rejection stage. No training — inference
-only. The server reads the key from the `GROQ_API_KEY` environment variable;
-end users never enter a key.
+An LLM parses the résumé and JD into structured data, scores the fit, and
+diagnoses the likely rejection stage. No training — inference only. The pipeline
+calls **Anthropic Claude (Haiku 4.5)** as the primary provider and automatically
+falls back to the free **Groq** API (Llama 3.3 70B) on a rate-limit. The server
+reads `ANTHROPIC_API_KEY` (and `GROQ_API_KEY` for the fallback) from environment
+variables; end users never enter a key.
 
 ## Run the web app locally
 ```bash
 pip install -r requirements.txt
-export GROQ_API_KEY="gsk_your_free_key"     # Windows PowerShell: $env:GROQ_API_KEY="..."
+export ANTHROPIC_API_KEY="sk-ant-your_key"   # primary; PowerShell: $env:ANTHROPIC_API_KEY="..."
+export GROQ_API_KEY="gsk_your_free_key"      # fallback; PowerShell: $env:GROQ_API_KEY="..."
 python -m uvicorn app_web:app --reload --port 8000
 # open http://localhost:8000
 ```
@@ -43,13 +46,14 @@ Click **Try a live sample** to demo it with no typing.
 ## Deploy free on Hugging Face Spaces (share on LinkedIn)
 1. Create a new **Space** at https://huggingface.co/new-space → **SDK: Docker**.
 2. Push this repo's contents to the Space (it auto-builds from the `Dockerfile`).
-3. In **Settings → Variables and secrets**, add a secret:
-   `GROQ_API_KEY = gsk_your_key_here`
+3. In **Settings → Variables and secrets**, add two secrets:
+   `ANTHROPIC_API_KEY = sk-ant-your_key_here` (primary) and
+   `GROQ_API_KEY = gsk_your_key_here` (fallback).
 4. The Space builds and serves on port 7860. Share the public `*.hf.space` URL.
 
-Visitors use your shared key automatically (Groq's free tier is rate-limited
-across all visitors). Each visitor's logged history is kept separate via an
-anonymous browser id.
+Visitors use your shared keys automatically (the providers' free/low-cost tiers
+are rate-limited across all visitors). Each visitor's logged history is kept
+separate via an anonymous browser id.
 
 > Note: on the free tier the SQLite history is ephemeral (resets on rebuild).
 > Enable persistent storage if you need it to survive restarts.
@@ -62,7 +66,7 @@ Paste a key in the sidebar, or set `GROQ_API_KEY` / a `.streamlit/secrets.toml`.
 
 ## Evaluate the scorer
 ```bash
-python -m evals.eval_harness     # needs GROQ_API_KEY
+python -m evals.eval_harness     # needs ANTHROPIC_API_KEY (+ GROQ_API_KEY fallback)
 ```
 Reports accuracy and shows the scorer gives higher fit to applications that
 really advanced (interview/offer) than to those that didn't.

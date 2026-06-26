@@ -18,7 +18,7 @@ and how to explain it confidently in an interview.
 - **Problem:** Job seekers get rejected and ghosted with zero feedback. They don't know if it's skills, seniority, an ATS keyword screen, or just bad luck.
 - **Solution:** An app that diagnoses *why* a specific application is weak and shows the bottleneck across many applications.
 - **How:** A pipeline — parse → score → diagnose → store → aggregate → display.
-- **Stack:** Python, Pydantic, an LLM via the Groq API, FastAPI, SQLite, a vanilla HTML/CSS/JS frontend, Docker, deployed on Render/Hugging Face.
+- **Stack:** Python, Pydantic, an LLM via the Anthropic API (Claude Haiku 4.5 primary) with a Groq/Llama fallback, FastAPI, SQLite, a vanilla HTML/CSS/JS frontend, Docker, deployed on Render/Hugging Face.
 - **Result:** A live, shareable product, plus an evaluation harness that measures how well the scorer agrees with real outcomes.
 
 ---
@@ -82,11 +82,11 @@ design."
 - **Why LLM instead of regex:** résumés/JDs are unstructured free text with infinite formats — rules break; an LLM generalizes.
 
 ### 4.2 Shared LLM helper — `core/llm.py`
-- **What:** `get_client()` (lazy Groq client) and `chat_json()` (calls the model in **JSON mode**, `temperature=0`, with **retries**).
+- **What:** lazy clients for both providers plus `complete_json()` / `chat_json()` — calls the model with `temperature=0`, JSON output, and **retries**. Tries **Anthropic Claude Haiku 4.5** first and automatically falls back to **Groq (Llama 3.3 70B)** on a rate-limit.
 - **Why lazy:** the app and tests can import everything without an API key present; the key is only needed at call time.
 - **Why JSON mode + temp 0:** forces valid JSON and makes output deterministic/repeatable.
-- **Why retries:** LLM/network calls are flaky; we retry with backoff before failing.
-- **Swappable model:** `GROQ_MODEL` env var — change models without touching code.
+- **Why retries + fallback:** LLM/network calls are flaky; we retry with backoff, and if the primary provider is throttled we switch providers (independent token buckets) before failing.
+- **Swappable models:** `ANTHROPIC_MODEL` / `GROQ_FALLBACK_MODEL` env vars — change models without touching code.
 
 ### 4.3 Scoring — `core/scoring.py`
 - **What:** `score(resume, jd) -> FitScore`. The LLM rates four dimensions (skills, seniority, ATS keywords, domain), gives an overall score, and decides **semantically** which requirements are matched vs. missing.
@@ -136,7 +136,7 @@ design."
 |---|---|---|
 | Language | Python 3.11 | Best ecosystem for AI/data work |
 | Data models | Pydantic v2 | Validation, JSON (de)serialization, schema generation for prompts |
-| LLM inference | Groq API (Llama 3.3 70B) | Free tier, very fast; model swappable via env var |
+| LLM inference | Anthropic Claude Haiku 4.5 (primary) → Groq Llama 3.3 70B (fallback) | High-quality structured JSON; free/cheap fast fallback on rate-limit; models swappable via env var |
 | Backend | FastAPI + Uvicorn | Async, fast, Pydantic-native request validation |
 | Persistence | SQLite (stdlib) | Zero-config, file-based, fine for this scale |
 | Frontend | Vanilla HTML/CSS/JS + Chart.js | Lightweight, no build step, full design control |
@@ -153,7 +153,7 @@ design."
 3. **Defensive LLM handling.** JSON mode, `temperature=0`, retries with backoff, Pydantic validation, value clamping, and enum fallbacks — because LLMs are probabilistic and will occasionally misbehave.
 4. **Evidence-based prompt iteration.** Seniority year-bands and the "likely_fine at high fit" rule came from observing concrete failures, not guessing.
 5. **Objective evaluation.** A labeled eval set + harness measures agreement with real outcomes.
-6. **12-factor config.** Everything host-specific is an env var (`GROQ_API_KEY`, `GROQ_MODEL`, `APP_DB_PATH`, `$PORT`) so the *same* Docker image runs on Render and Hugging Face unchanged.
+6. **12-factor config.** Everything host-specific is an env var (`ANTHROPIC_API_KEY`, `GROQ_API_KEY`, `ANTHROPIC_MODEL`, `GROQ_FALLBACK_MODEL`, `APP_DB_PATH`, `$PORT`) so the *same* Docker image runs on Render and Hugging Face unchanged.
 7. **Multi-tenancy without auth.** Anonymous `client_id` in localStorage isolates each visitor's data — a pragmatic choice for a no-login public demo.
 8. **Security.** The API key lives only on the server; secrets come from the platform's secret store; `.gitignore` keeps keys/DBs out of git.
 
@@ -163,7 +163,7 @@ design."
 
 - **Docker:** `python:3.11-slim`, install pinned `requirements.txt`, copy code, bind to `${PORT:-7860}` (Render injects `$PORT`; HF uses 7860).
 - **Hugging Face Spaces:** Docker SDK; config via YAML front-matter in `README.md`; key stored as a Space **secret**.
-- **Render:** `render.yaml` blueprint (infrastructure-as-code) defines a free Docker web service with a `/api/health` health check and the `GROQ_API_KEY` as a dashboard-entered secret (`sync: false`).
+- **Render:** `render.yaml` blueprint (infrastructure-as-code) defines a free Docker web service with a `/api/health` health check and both `ANTHROPIC_API_KEY` and `GROQ_API_KEY` as dashboard-entered secrets (`sync: false`).
 - **Git remotes:** `origin` → GitHub (source), `space` → Hugging Face. Render auto-deploys from GitHub.
 - **CI-ready:** `python -m pytest` runs the storage/analytics test; the eval harness is a separate quality check.
 
@@ -174,7 +174,7 @@ design."
 - **Ephemeral storage** on free tiers — SQLite resets on rebuild. Fix: managed Postgres or a persistent volume.
 - **No accounts/auth** — `client_id` is per-browser, not a real user. Fix: add auth + per-user data.
 - **LLM rate limits** on the free tier under load. Fix: queueing, caching identical analyses, or a paid tier.
-- **Single-provider dependency** — mitigated by the `GROQ_MODEL` switch and a provider-agnostic `chat_json` boundary.
+- **Provider dependency** — mitigated by a two-provider setup (Anthropic primary, Groq fallback with independent token buckets) behind a provider-agnostic `chat_json`/`complete_json` boundary, with models swappable via env vars.
 - **LLM nondeterminism / hallucination** — mitigated by validation, fallbacks, and evals, but not eliminated.
 - **Roadmap:** a recruiter-contact extractor (with attention to platform ToS and email/privacy law), persistent multi-user accounts, and richer analytics.
 

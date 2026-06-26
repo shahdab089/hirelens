@@ -1,7 +1,7 @@
 """
 LLM helper for the AI core (parsing, scoring, diagnosis).
 
-PRIMARY provider: Anthropic Claude Haiku 3.5 (best quality-per-dollar for
+PRIMARY provider: Anthropic Claude Haiku 4.5 (best quality-per-dollar for
 structured JSON extraction; minimal hallucination on resume/JD tasks).
 FALLBACK provider: Groq llama-3.3-70b-versatile (free tier; independent token
 bucket means we still have capacity when Anthropic is unavailable).
@@ -63,7 +63,7 @@ def _is_rate_limit(err: Exception) -> bool:
 
 def _call_anthropic(messages: list[dict], max_tokens: int, retries: int) -> "dict[str, Any] | None":
     """
-    Call Claude Haiku 3.5. Returns parsed JSON dict on success, None on
+    Call Claude Haiku 4.5. Returns parsed JSON dict on success, None on
     rate-limit (caller falls through to Groq). Raises on hard errors.
     """
     client = _get_anthropic()
@@ -143,7 +143,7 @@ def _call_groq(messages: list[dict], max_tokens: int, retries: int) -> "dict[str
 
 def complete_json(messages: list[dict], max_tokens: int = 1536, retries: int = 2) -> "dict[str, Any]":
     """
-    Try Claude Haiku 3.5 first; fall back to Groq 70B on rate-limits.
+    Try Claude Haiku 4.5 first; fall back to Groq 70B on rate-limits.
     Returns a parsed JSON dict. Raises GroqRateLimit if all providers throttled.
     """
     try:
