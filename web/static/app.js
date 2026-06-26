@@ -7,6 +7,8 @@ const CLIENT_ID = (() => {
 
 const $ = (id) => document.getElementById(id);
 let lastRecord = null;       // serialized ApplicationRecord from /api/analyze
+let lastAnalysis = null;     // full /api/analyze response (for the share card)
+let lastTriage = null;       // full /api/triage response (for CSV / save-all)
 let gaugeChart, stagesChart, outcomesChart;
 
 const sevColor = (v) => (v >= 0.7 ? "#4ade80" : v >= 0.45 ? "#fbbf24" : "#f87171");
@@ -72,6 +74,7 @@ async function analyze() {
     const data = await res.json();
     if (!res.ok) { showError(data.detail || "Analysis failed."); return; }
     lastRecord = data.record;
+    lastAnalysis = data;
     renderResults(data);
     $("results").hidden = false;
     $("results").scrollIntoView({ behavior: "smooth" });
@@ -85,8 +88,8 @@ async function analyze() {
 function renderResults(d) {
   // gauge
   const pct = Math.round(d.overall * 100);
-  $("gauge-num").textContent = pct + "%";
   $("gauge-num").style.color = sevColor(d.overall);
+  countUp($("gauge-num"), pct, 850, "%");
   drawGauge(d.overall);
 
   // sample truth reveal
@@ -289,6 +292,216 @@ $("btn-try-sample").addEventListener("click", async () => {
 
 loadSamples();
 loadPatterns();
+
+// ----------------------------------------------------------------- triage ----
+const VERDICT_RANK = { apply_hard: 3, worth_a_shot: 2, skip: 1, error: 0 };
+
+function addJdRow(focus) {
+  const wrap = $("t-jds");
+  const row = document.createElement("div");
+  row.className = "card input-card t-jd-row";
+  row.innerHTML =
+    `<div class="input-head">
+       <h3>💼 Job <span class="t-jd-n"></span></h3>
+       <button class="btn btn-ghost btn-sm t-jd-remove" title="Remove this job">✕ Remove</button>
+     </div>
+     <textarea class="t-jd-text" placeholder="Paste a job description…"></textarea>`;
+  wrap.appendChild(row);
+  renumberJds();
+  if (focus) row.querySelector(".t-jd-text").focus();
+}
+
+function renumberJds() {
+  document.querySelectorAll("#t-jds .t-jd-row").forEach((row, i) => {
+    row.querySelector(".t-jd-n").textContent = i + 1;
+  });
+}
+
+function tShowError(msg) { const b = $("t-error"); b.textContent = msg; b.hidden = false; }
+function tClearError() { $("t-error").hidden = true; }
+
+async function triage() {
+  tClearError();
+  const resume_text = $("t-resume-text").value.trim();
+  if (!resume_text) { tShowError("Please paste your résumé first."); return; }
+  const jds = [...document.querySelectorAll("#t-jds .t-jd-text")]
+    .map((t) => t.value.trim())
+    .filter(Boolean)
+    .map((text) => ({ text }));
+  if (!jds.length) { tShowError("Add at least one job description."); return; }
+
+  $("loading").hidden = false;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 120000);
+    const res = await fetch("/api/triage", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resume_text, jds }),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    const data = await res.json();
+    if (!res.ok) { tShowError(data.detail || "Triage failed."); return; }
+    lastTriage = data;
+    renderTriage(data);
+    $("t-results").hidden = false;
+    $("t-results").scrollIntoView({ behavior: "smooth" });
+  } catch (e) {
+    tShowError("Network error — please try again.");
+  } finally {
+    $("loading").hidden = true;
+  }
+}
+
+function renderTriage(data) {
+  const s = data.summary;
+  let summary = `<div class="t-summary-counts">
+      <span class="t-pill v-apply_hard">🟢 Apply hard · <b class="t-count" data-to="${s.apply_hard}">0</b></span>
+      <span class="t-pill v-worth_a_shot">🟡 Worth a shot · <b class="t-count" data-to="${s.worth_a_shot}">0</b></span>
+      <span class="t-pill v-skip">🔴 Skip · <b class="t-count" data-to="${s.skip}">0</b></span>
+    </div>`;
+  if (s.best) summary += `<p class="t-summary-line">Your strongest match: <b>${escapeHtml(s.best)}</b>. Put your energy there.</p>`;
+  if (s.dominant_blocker) summary += `<p class="t-summary-line">Across the jobs you should skip, your most common blocker is <b>${escapeHtml(s.dominant_blocker)}</b> — fix that and more roles open up.</p>`;
+  if (s.rate_limited) summary += `<p class="t-summary-line warn">⚠️ Hit a rate limit partway through — some jobs weren't scored. Wait a minute and re-run the rest.</p>`;
+  $("t-summary").innerHTML = summary;
+  $("t-summary").querySelectorAll(".t-count").forEach((el) => countUp(el, +el.dataset.to));
+
+  const tbody = document.querySelector("#t-table tbody");
+  tbody.innerHTML = "";
+  data.results.forEach((r, i) => {
+    const tr = document.createElement("tr");
+    tr.style.animationDelay = (i * 70) + "ms";   // staggered reveal
+    if (r.error) {
+      tr.innerHTML = `<td>${i + 1}</td><td colspan="6" class="t-err">⚠️ ${escapeHtml(r.label)} — could not score (${escapeHtml(r.error)})</td>`;
+    } else {
+      if (i === 0) tr.className = "top-row";       // highlight the best match
+      const pct = Math.round(r.overall * 100);
+      tr.innerHTML =
+        `<td>${i + 1}</td>
+         <td>${escapeHtml(r.jd_title)}</td>
+         <td>${escapeHtml(r.jd_company)}</td>
+         <td style="color:${sevColor(r.overall)};font-weight:700">${pct}%</td>
+         <td><span class="t-pill v-${r.verdict}">${escapeHtml(r.verdict_label)}</span></td>
+         <td>${escapeHtml(r.stage_label)}</td>
+         <td class="t-fix">${escapeHtml(r.top_fix)}</td>`;
+    }
+    tbody.appendChild(tr);
+  });
+}
+
+// count a number up from 0 -> target (requestAnimationFrame, ~0.65s)
+function countUp(el, to, ms = 650, suffix = "") {
+  if (!to) { el.textContent = "0" + suffix; return; }
+  let startTs = null;
+  function step(ts) {
+    if (startTs === null) startTs = ts;
+    const p = Math.min(1, (ts - startTs) / ms);
+    el.textContent = Math.round(p * to) + suffix;
+    if (p < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+// seed two empty JD rows, wire controls
+addJdRow();
+addJdRow();
+$("t-add-jd").addEventListener("click", () => addJdRow(true));
+$("t-analyze").addEventListener("click", triage);
+$("t-resume-file").addEventListener("change", (e) => extractFile(e.target, $("t-resume-text")));
+$("t-jds").addEventListener("click", (e) => {
+  const btn = e.target.closest(".t-jd-remove");
+  if (!btn) return;
+  const rows = document.querySelectorAll("#t-jds .t-jd-row");
+  if (rows.length <= 1) { btn.closest(".t-jd-row").querySelector(".t-jd-text").value = ""; return; }
+  btn.closest(".t-jd-row").remove();
+  renumberJds();
+});
+
+// ------------------------------------------------------------- mode toggle ----
+function setMode(mode) {
+  const single = mode === "single";
+  document.querySelectorAll(".mode-btn").forEach((b) => b.classList.toggle("active", b.dataset.mode === mode));
+  $("mode-toggle").classList.toggle("batch", !single);
+  $("panel-single").hidden = !single;
+  $("panel-batch").hidden = single;
+  // carry the résumé across both modes so you only paste it once
+  const from = single ? $("t-resume-text") : $("resume-text");
+  const to = single ? $("resume-text") : $("t-resume-text");
+  if (from.value.trim() && !to.value.trim()) to.value = from.value;
+  // clear stale results from the mode we're leaving
+  $("results").hidden = true;
+  $("t-results").hidden = true;
+}
+document.querySelectorAll(".mode-btn").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
+$("nav-triage").addEventListener("click", () => setMode("batch"));
+
+// --------------------------------------------------------- share as image ----
+async function shareCard() {
+  if (!lastAnalysis) return;
+  if (typeof html2canvas === "undefined") { showError("Image library didn't load — check your connection."); return; }
+  const d = lastAnalysis;
+  $("sc-role").textContent = d.jd_title || "This role";
+  $("sc-company").textContent = d.jd_company ? "@ " + d.jd_company : "";
+  $("sc-fit").textContent = Math.round(d.overall * 100) + "%";
+  $("sc-fit").style.color = sevColor(d.overall);
+  $("sc-stage").textContent = d.stage_label || "";
+  $("sc-headline").textContent = (d.diagnosis && d.diagnosis.headline) || "";
+
+  const btn = $("btn-share"); const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = "Rendering…";
+  try {
+    const canvas = await html2canvas($("share-card"), { backgroundColor: null, scale: 2 });
+    const link = document.createElement("a");
+    link.download = "hirelens-result.png";
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+  } catch (e) {
+    showError("Could not generate the image.");
+  } finally {
+    btn.disabled = false; btn.textContent = orig;
+  }
+}
+$("btn-share").addEventListener("click", shareCard);
+
+// ----------------------------------------------------- triage save / export ----
+async function saveAllTriage() {
+  if (!lastTriage) return;
+  const toSave = lastTriage.results.filter((r) => r.record);
+  if (!toSave.length) return;
+  const btn = $("t-save-all"); const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = "Saving…";
+  let n = 0;
+  for (const r of toSave) {
+    try {
+      const res = await fetch("/api/log", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client_id: CLIENT_ID, record: r.record, outcome: null }),
+      });
+      if (res.ok) n++;
+    } catch (e) { /* skip this one */ }
+  }
+  btn.textContent = `Saved ${n} ✓`;
+  loadPatterns();
+  setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2200);
+}
+$("t-save-all").addEventListener("click", saveAllTriage);
+
+function exportTriageCsv() {
+  if (!lastTriage) return;
+  const rows = [["Rank", "Role", "Company", "Fit %", "Verdict", "Kill-stage", "Top fix"]];
+  lastTriage.results.forEach((r, i) => {
+    if (r.error) { rows.push([i + 1, r.label, "", "", "Error", "", r.error]); return; }
+    rows.push([i + 1, r.jd_title, r.jd_company, Math.round(r.overall * 100), r.verdict_label, r.stage_label, r.top_fix]);
+  });
+  const csv = rows.map((row) => row.map((c) => `"${String(c == null ? "" : c).replace(/"/g, '""')}"`).join(",")).join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "hirelens-triage.csv";
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+$("t-export-csv").addEventListener("click", exportTriageCsv);
 
 // ---- rotating headline word ----
 (function rotateWord() {

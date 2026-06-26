@@ -6,13 +6,34 @@
   <title>Hirelens — See why you're not getting hired</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' fill='none'><defs><linearGradient id='g' x1='2' y1='2' x2='30' y2='30' gradientUnits='userSpaceOnUse'><stop stop-color='%234ade80'/><stop offset='1' stop-color='%2322d3ee'/></linearGradient></defs><circle cx='13' cy='13' r='9.2' stroke='url(%23g)' stroke-width='2.6'/><path d='M20 20l8 8' stroke='url(%23g)' stroke-width='2.6' stroke-linecap='round'/><path d='M8.5 15.5l3-4 3 2 3.5-5.5' stroke='url(%23g)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>" />
   <meta name="description" content="Hirelens — paste a résumé and a job description. Get a brutally honest fit score, the likely reason it gets rejected, and concrete fixes. Powered by AI." />
+  <meta name="theme-color" content="#0b0e14" />
+  <!-- Open Graph (rich link previews on LinkedIn/Slack/etc.) -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Hirelens — See why you're not getting hired" />
+  <meta property="og:description" content="Paste your résumé and a job description. Get a brutally honest fit score, the single most likely reason it gets filtered out, and concrete fixes." />
+  <meta property="og:image" content="/og-image.png" />
+  <!-- TODO before hosting: add a 1200×630 og-image.png to web/static/ and set og:url to your domain -->
+  <!-- Twitter card -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Hirelens — See why you're not getting hired" />
+  <meta name="twitter:description" content="A brutally honest AI fit score, the likely rejection reason, and concrete fixes." />
+  <meta name="twitter:image" content="/og-image.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/styles.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 </head>
 <body>
+  <!-- AMBIENT BACKGROUND FX -->
+  <div class="bg-fx" aria-hidden="true">
+    <span class="bg-orb o1"></span>
+    <span class="bg-orb o2"></span>
+    <span class="bg-orb o3"></span>
+    <span class="bg-orb o4"></span>
+  </div>
+
   <!-- NAV -->
   <header class="nav">
     <div class="nav-inner">
@@ -27,8 +48,10 @@
       </a>
       <nav class="nav-links">
         <a href="#analyze">Analyze</a>
+        <a href="#analyze" id="nav-triage">Triage</a>
         <a href="#patterns" id="nav-patterns">Patterns</a>
         <a href="#how">How it works</a>
+        <a href="#about">About</a>
         <a class="btn btn-primary btn-sm" href="#analyze">Analyze →</a>
       </nav>
     </div>
@@ -57,32 +80,81 @@
   <!-- ANALYZE -->
   <section class="section" id="analyze">
     <div class="container">
-      <h2 class="section-title">🔍 Analyze an application</h2>
-      <div class="grid-2">
+      <h2 class="section-title">🔍 Analyze your fit</h2>
+
+      <div class="mode-toggle" id="mode-toggle">
+        <button class="mode-btn active" data-mode="single">🎯 Single job</button>
+        <button class="mode-btn" data-mode="batch">🗂️ Batch triage</button>
+        <span class="mode-slider" aria-hidden="true"></span>
+      </div>
+
+      <!-- SINGLE MODE -->
+      <div class="mode-panel" id="panel-single">
+        <div class="grid-2">
+          <div class="card input-card reveal">
+            <div class="input-head">
+              <h3>📄 Résumé</h3>
+              <label class="file-btn">Upload
+                <input type="file" id="resume-file" accept=".pdf,.docx,.txt" hidden />
+              </label>
+            </div>
+            <textarea id="resume-text" placeholder="Paste your résumé text here…"></textarea>
+          </div>
+          <div class="card input-card reveal">
+            <div class="input-head">
+              <h3>💼 Job description</h3>
+              <label class="file-btn">Upload
+                <input type="file" id="jd-file" accept=".pdf,.docx,.txt" hidden />
+              </label>
+            </div>
+            <textarea id="jd-text" placeholder="Paste the job description here…"></textarea>
+          </div>
+        </div>
+        <div class="analyze-bar">
+          <select id="sample-select" class="select"><option value="">— Load a built-in sample —</option></select>
+          <button class="btn btn-primary btn-lg" id="btn-analyze">🚀 Analyze fit</button>
+        </div>
+        <div id="error-box" class="error-box" hidden></div>
+      </div>
+
+      <!-- BATCH (TRIAGE) MODE -->
+      <div class="mode-panel" id="panel-batch" hidden>
+        <p class="triage-lede">Add the jobs you're eyeing and find out which ones are actually worth your time — ranked by fit, each tagged with the stage that would kill it. Stop spraying applications at roles that auto-reject you.</p>
         <div class="card input-card reveal">
           <div class="input-head">
-            <h3>📄 Résumé</h3>
+            <h3>📄 Your résumé</h3>
             <label class="file-btn">Upload
-              <input type="file" id="resume-file" accept=".pdf,.docx,.txt" hidden />
+              <input type="file" id="t-resume-file" accept=".pdf,.docx,.txt" hidden />
             </label>
           </div>
-          <textarea id="resume-text" placeholder="Paste your résumé text here…"></textarea>
+          <textarea id="t-resume-text" placeholder="Paste your résumé text here…"></textarea>
         </div>
-        <div class="card input-card reveal">
-          <div class="input-head">
-            <h3>💼 Job description</h3>
-            <label class="file-btn">Upload
-              <input type="file" id="jd-file" accept=".pdf,.docx,.txt" hidden />
-            </label>
+        <div id="t-jds"></div>
+        <div class="analyze-bar">
+          <button class="btn btn-ghost" id="t-add-jd">＋ Add another job</button>
+          <button class="btn btn-primary btn-lg" id="t-analyze">🚀 Triage all jobs</button>
+        </div>
+        <div id="t-error" class="error-box" hidden></div>
+
+        <div id="t-results" hidden>
+          <div class="card triage-summary" id="t-summary"></div>
+          <div class="card">
+            <div class="t-table-head">
+              <h3>Ranked jobs</h3>
+              <div class="t-actions">
+                <button class="btn btn-ghost btn-sm" id="t-save-all">💾 Save all to patterns</button>
+                <button class="btn btn-ghost btn-sm" id="t-export-csv">⬇ Export CSV</button>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table id="t-table">
+                <thead><tr><th>#</th><th>Role</th><th>Company</th><th>Fit</th><th>Verdict</th><th>Kill-stage</th><th>Top fix</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
           </div>
-          <textarea id="jd-text" placeholder="Paste the job description here…"></textarea>
         </div>
       </div>
-      <div class="analyze-bar">
-        <select id="sample-select" class="select"><option value="">— Load a built-in sample —</option></select>
-        <button class="btn btn-primary btn-lg" id="btn-analyze">🚀 Analyze fit</button>
-      </div>
-      <div id="error-box" class="error-box" hidden></div>
     </div>
   </section>
 
@@ -131,6 +203,7 @@
             <option value="offer">offer</option>
           </select>
           <button class="btn btn-ghost" id="btn-log">💾 Save to my patterns</button>
+          <button class="btn btn-ghost" id="btn-share">📸 Share as image</button>
           <span id="log-status" class="log-status"></span>
         </div>
       </div>
@@ -193,12 +266,66 @@
     </div>
   </section>
 
+  <!-- ABOUT THE CREATOR -->
+  <section class="section about" id="about">
+    <div class="container">
+      <h2 class="section-title">👋 About the creator</h2>
+      <div class="about-grid">
+        <aside class="about-aside reveal">
+          <div class="avatar" aria-hidden="true">SA</div>
+          <div class="avatar-name">Shadab Akhtar</div>
+          <div class="avatar-role">Data Scientist &amp; AI Engineer</div>
+          <div class="avatar-loc">📍 Texas, US</div>
+          <div class="about-links">
+            <a class="about-link" href="https://github.com/shahdab089" target="_blank" rel="noopener">GitHub</a>
+            <a class="about-link" href="https://www.linkedin.com/in/shadabakhtar089/" target="_blank" rel="noopener">LinkedIn</a>
+            <a class="about-link" href="mailto:shahdab089@gmail.com">Email</a>
+          </div>
+        </aside>
+        <div class="about-body reveal">
+          <p class="about-lede">Hi, I'm Shadab — I build production ML and AI systems for fraud detection, credit risk, and LLM-powered products, with 6+ years across telecom and fintech.</p>
+          <p>I built <b>Hirelens</b> after watching how brutal the job hunt has become. You fire off dozens of applications and get back… silence. No feedback, no reason, nothing to fix. So I built the tool I wish existed — one that tells you the <em>truth</em>: exactly where your application breaks, the single most likely reason it gets filtered out, and what to change.</p>
+          <p>By day I ship models that move real money — a fraud-scoring pipeline preventing <b>$1M+/month</b> in losses, a cascaded scoring layer that cut analyst review work by <b>97.9%</b>, and GenAI agents that turn plain-English questions into executive-ready answers. Hirelens brings that same rigor to the job search: a hybrid system where the LLM does the judgment and deterministic code guards the facts.</p>
+          <div class="about-tags">
+            <span class="chip chip-match">Python · PySpark</span>
+            <span class="chip chip-match">LightGBM · XGBoost</span>
+            <span class="chip chip-match">Databricks · MLflow</span>
+            <span class="chip chip-match">LangGraph · RAG</span>
+            <span class="chip chip-match">Claude · Groq</span>
+            <span class="chip chip-match">FastAPI</span>
+          </div>
+          <div class="about-cta">
+            <span>Open to ML / AI engineering roles &amp; collaborations.</span>
+            <a class="btn btn-primary" href="mailto:shahdab089@gmail.com">📨 Get in touch</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <footer class="footer">
     <div class="container">
       <p><b>Hirelens</b> · AI-powered résumé &amp; job-fit analysis</p>
       <p class="fine">Not affiliated with any employer or ATS vendor. For guidance only.</p>
     </div>
   </footer>
+
+  <!-- off-screen card snapshotted to PNG for sharing -->
+  <div id="share-card" class="share-card" aria-hidden="true">
+    <div class="sc-top">
+      <span class="sc-brand">🔍 Hirelens</span>
+      <span class="sc-tag">AI résumé ↔ job fit</span>
+    </div>
+    <div class="sc-role" id="sc-role"></div>
+    <div class="sc-company" id="sc-company"></div>
+    <div class="sc-fitrow">
+      <div class="sc-fit" id="sc-fit">—</div>
+      <div class="sc-fitlabel">overall fit</div>
+    </div>
+    <div class="sc-stage" id="sc-stage"></div>
+    <div class="sc-headline" id="sc-headline"></div>
+    <div class="sc-foot">hirelens · find out why you're not getting hired</div>
+  </div>
 
   <div id="loading" class="loading" hidden><div class="spinner"></div><div>Reading, scoring & diagnosing…</div></div>
 

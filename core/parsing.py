@@ -12,6 +12,10 @@ import os
 import time
 from typing import Type
 
+import html as html_lib
+import html.parser
+from html.parser import HTMLParser
+
 import docx
 import pypdf
 from groq import Groq
@@ -57,8 +61,43 @@ def extract_text_from_docx(file_path: str) -> str:
     return "\n".join(paragraph.text for paragraph in doc.paragraphs).strip()
 
 
+class _HTMLTextExtractor(HTMLParser):
+    """Minimal HTML parser that strips tags and returns plain text."""
+    def __init__(self):
+        super().__init__()
+        self._parts: list[str] = []
+        self._skip_tags = {"script", "style", "head", "meta", "link"}
+        self._skip = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() in self._skip_tags:
+            self._skip += 1
+
+    def handle_endtag(self, tag):
+        if tag.lower() in self._skip_tags and self._skip > 0:
+            self._skip -= 1
+
+    def handle_data(self, data):
+        if self._skip == 0:
+            stripped = data.strip()
+            if stripped:
+                self._parts.append(stripped)
+
+    def get_text(self) -> str:
+        return " ".join(self._parts)
+
+
+def extract_text_from_html(file_path: str) -> str:
+    """Extracts readable text from an HTML file by stripping tags."""
+    with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+        raw = f.read()
+    parser = _HTMLTextExtractor()
+    parser.feed(raw)
+    return html_lib.unescape(parser.get_text()).strip()
+
+
 def extract_text(file_path: str) -> str:
-    """Extracts text from a file based on its extension (.pdf/.docx/.txt)."""
+    """Extracts text from a file based on its extension (.pdf/.docx/.txt/.html/.htm)."""
     ext = os.path.splitext(file_path)[1].lower()
     if ext == ".pdf":
         return extract_text_from_pdf(file_path)
@@ -67,7 +106,9 @@ def extract_text(file_path: str) -> str:
     if ext == ".txt":
         with open(file_path, "r", encoding="utf-8") as f:
             return f.read()
-    raise ValueError(f"Unsupported file extension: {ext}")
+    if ext in (".html", ".htm"):
+        return extract_text_from_html(file_path)
+    raise ValueError(f"Unsupported file extension: {ext} (supported: .pdf, .docx, .txt, .html, .htm)")
 
 
 # ---------- LLM-assisted structured extraction ----------
@@ -137,7 +178,12 @@ def parse_both(resume_text: str, jd_text: str, retries: int = 2) -> tuple[Parsed
         f"'job' must match this JSON schema:\n{jd_schema}\n\n"
         "Rules: only use information present in each text; use null / empty lists "
         "when something is absent; do not invent skills or requirements. Do NOT "
-        "include any 'raw_text' field — omit it entirely. Keep lists concise.\n\n"
+        "include any 'raw_text' field — omit it entirely. Keep lists concise.\n"
+        "For the resume 'projects' field: list each distinct project as a single "
+        "string summarising its name, tech stack, and purpose (e.g. 'HireLens -- "
+        "FastAPI + LLM tool for resume scoring'); include ALL projects, even "
+        "personal/side projects built for a specific role. This field is critical "
+        "for matching project-based skills to JD requirements.\n\n"
         f"=== RÉSUMÉ ===\n{_cap(resume_text)}\n\n"
         f"=== JOB DESCRIPTION ===\n{_cap(jd_text)}"
     )

@@ -6,5 +6,7 @@ services:
     dockerfilePath: ./Dockerfile
     healthCheckPath: /api/health
     envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
       - key: GROQ_API_KEY
         sync: false

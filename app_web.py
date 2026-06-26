@@ -8,6 +8,13 @@ send it. Per-visitor history is scoped by an anonymous client_id.
 """
 import os
 import tempfile
+
+# Load .env file automatically for local development
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv not installed -- use real env vars (production)
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -22,7 +29,7 @@ from analytics.patterns import build_report
 from core.contacts import extract_contacts
 from core.llm import GroqRateLimit
 from core.outreach import draft_outreach
-from core.parsing import extract_text, parse_both
+from core.parsing import extract_text, parse_both, parse_jd, parse_resume
 from core.schema import ApplicationRecord
 from core.scoring import score_and_diagnose
 from storage import load_by_client, save, set_outcome
@@ -65,9 +72,37 @@ class OutreachReq(BaseModel):
     record: dict
 
 
+class TriageJD(BaseModel):
+    text: str
+    label: Optional[str] = None
+
+
+class TriageReq(BaseModel):
+    resume_text: str
+    jds: list[TriageJD]
+
+
 # --------------------------------------------------------------------- helpers -
+MAX_TRIAGE_JDS = 10
+
+VERDICT_LABELS = {
+    "apply_hard": "Apply hard",
+    "worth_a_shot": "Worth a shot",
+    "skip": "Skip",
+}
+
+
+def _verdict(overall: float) -> str:
+    """Bucket an overall fit score into an actionable recommendation."""
+    if overall >= 0.75:
+        return "apply_hard"
+    if overall >= 0.50:
+        return "worth_a_shot"
+    return "skip"
 def _require_key():
-    if not os.environ.get("GROQ_API_KEY"):
+    has_anthropic = bool(os.environ.get("ANTHROPIC_API_KEY"))
+    has_groq = bool(os.environ.get("GROQ_API_KEY"))
+    if not has_anthropic and not has_groq:
         raise HTTPException(
             status_code=503,
             detail="The analysis service isn't configured yet. Please try again later.",
@@ -77,7 +112,11 @@ def _require_key():
 # ------------------------------------------------------------------- API routes -
 @app.get("/api/health")
 def health():
-    return {"ok": True, "key_configured": bool(os.environ.get("GROQ_API_KEY"))}
+    return {
+        "ok": True,
+        "anthropic_configured": bool(os.environ.get("ANTHROPIC_API_KEY")),
+        "groq_configured": bool(os.environ.get("GROQ_API_KEY")),
+    }
 
 
 @app.post("/api/analyze")
@@ -116,6 +155,114 @@ def api_analyze(req: AnalyzeReq):
         "contacts": extract_contacts(req.jd_text).model_dump(),
         # full serialized record so the client can log it without re-running.
         "record": record.model_dump(mode="json"),
+    }
+
+
+@app.post("/api/triage")
+def api_triage(req: TriageReq):
+    """
+    Batch mode: score ONE résumé against MANY job descriptions and rank them.
+
+    Parses the résumé once (not per-JD) to save tokens, then runs each JD through
+    the normal parse + score + diagnose pipeline. A single malformed JD is isolated
+    as an error row rather than failing the whole batch; a provider rate-limit stops
+    the batch early and returns whatever has been scored so far.
+    """
+    _require_key()
+    if not req.resume_text.strip():
+        raise HTTPException(400, "Please provide your résumé.")
+    jds = [j for j in req.jds if j.text.strip()]
+    if not jds:
+        raise HTTPException(400, "Please add at least one job description.")
+    if len(jds) > MAX_TRIAGE_JDS:
+        raise HTTPException(400, f"Please limit to {MAX_TRIAGE_JDS} job descriptions per batch.")
+
+    # Parse the résumé ONCE — avoids re-extracting it for every JD.
+    try:
+        resume = parse_resume(req.resume_text)
+    except GroqRateLimit:
+        raise HTTPException(429, "We're experiencing high demand right now — please wait a minute and try again.")
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(400, f"Could not parse your résumé: {err}")
+
+    results = []
+    rate_limited = False
+    for i, item in enumerate(jds):
+        label = (item.label or "").strip()
+        try:
+            jd = parse_jd(item.text)
+            fit, diag = score_and_diagnose(resume, jd)
+            verdict = _verdict(fit.overall)
+            stage = diag.likely_stage.value
+            record = ApplicationRecord(
+                id=str(uuid4()),
+                created_at=datetime.now(),
+                jd=jd,
+                resume=resume,
+                fit=fit,
+                diagnosis=diag,
+            )
+            results.append({
+                "label": label or jd.title or f"Job {i + 1}",
+                "jd_title": jd.title,
+                "jd_company": jd.company or "—",
+                "overall": fit.overall,
+                "stage": stage,
+                "stage_label": STAGE_LABELS.get(stage, stage),
+                "verdict": verdict,
+                "verdict_label": VERDICT_LABELS[verdict],
+                "top_fix": diag.top_fixes[0] if diag.top_fixes else "",
+                "headline": diag.headline,
+                "matched_count": len(fit.matched_skills),
+                "missing_count": len(fit.missing_skills),
+                # full serialized record so the client can save it to patterns.
+                "record": record.model_dump(mode="json"),
+                "error": None,
+            })
+        except GroqRateLimit:
+            rate_limited = True
+            break  # stop the batch; return partial results
+        except Exception as err:  # noqa: BLE001
+            results.append({
+                "label": label or f"Job {i + 1}",
+                "jd_title": label or f"Job {i + 1}",
+                "jd_company": "—",
+                "overall": None,
+                "stage": None,
+                "stage_label": "—",
+                "verdict": "error",
+                "verdict_label": "Error",
+                "top_fix": "",
+                "headline": "",
+                "matched_count": 0,
+                "missing_count": 0,
+                "record": None,
+                "error": str(err),
+            })
+
+    # Rank by fit (highest first); error rows sink to the bottom.
+    ranked = sorted(results, key=lambda r: (r["overall"] is not None, r["overall"] or -1), reverse=True)
+
+    scored = [r for r in ranked if r["overall"] is not None]
+    buckets = {"apply_hard": 0, "worth_a_shot": 0, "skip": 0}
+    stage_counts: dict[str, int] = {}
+    for r in scored:
+        buckets[r["verdict"]] = buckets.get(r["verdict"], 0) + 1
+        if r["verdict"] == "skip":
+            stage_counts[r["stage_label"]] = stage_counts.get(r["stage_label"], 0) + 1
+    dominant_blocker = max(stage_counts, key=stage_counts.get) if stage_counts else None
+
+    return {
+        "results": ranked,
+        "summary": {
+            "total": len(scored),
+            "apply_hard": buckets["apply_hard"],
+            "worth_a_shot": buckets["worth_a_shot"],
+            "skip": buckets["skip"],
+            "best": scored[0]["label"] if scored else None,
+            "dominant_blocker": dominant_blocker,
+            "rate_limited": rate_limited,
+        },
     }
 
 
@@ -237,3 +384,8 @@ def index():
 
 
 app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("app_web:app", host="0.0.0.0", port=port, reload=True)

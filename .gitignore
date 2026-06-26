@@ -3,6 +3,7 @@ __pycache__/
 applications.db
 .env
 .venv/
+venv/
 .streamlit/secrets.toml
 *.log
 .DS_Store

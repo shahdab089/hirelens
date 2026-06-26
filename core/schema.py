@@ -30,6 +30,9 @@ class ParsedResume(BaseModel):
     years_experience: Optional[float] = None
     seniority: Optional[str] = None          # "junior" | "mid" | "senior" | "staff"
     titles: list[str] = Field(default_factory=list)
+    # BUG FIX 3: Project descriptions captured separately so the scoring
+    # layer can surface skills mentioned only in project bullets.
+    projects: list[str] = Field(default_factory=list)  # one string per project
 
 
 class ParsedJD(BaseModel):
