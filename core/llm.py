@@ -6,9 +6,12 @@ structured JSON extraction; minimal hallucination on resume/JD tasks).
 FALLBACK provider: Groq llama-3.3-70b-versatile (free tier; independent token
 bucket means we still have capacity when Anthropic is unavailable).
 
-Required env vars:
-  ANTHROPIC_API_KEY   -- your Anthropic key (get one at console.anthropic.com)
-  GROQ_API_KEY        -- your Groq key (fallback; keep the existing one)
+Env vars:
+  GROQ_API_KEY        -- REQUIRED. Powers the fallback path (and the whole app if
+                         no Anthropic key is present).
+  ANTHROPIC_API_KEY   -- OPTIONAL but recommended. When set, Claude is the primary;
+                         if it's missing/invalid/rate-limited we transparently fall
+                         back to Groq, so a bad or absent key never breaks requests.
 
 Optional overrides:
   ANTHROPIC_MODEL     -- default: claude-haiku-4-5
@@ -61,11 +64,25 @@ def _is_rate_limit(err: Exception) -> bool:
     ))
 
 
+def _is_auth_or_config(err: Exception) -> bool:
+    """Primary provider is unusable because of a missing/invalid key, not load."""
+    s = str(err).lower()
+    return any(tok in s for tok in (
+        "anthropic_api_key", "authentication", "x-api-key", "401", "403",
+        "unauthorized", "permission", "invalid api key", "invalid x-api-key",
+    ))
+
+
 def _call_anthropic(messages: list[dict], max_tokens: int, retries: int) -> "dict[str, Any] | None":
     """
-    Call Claude Haiku 4.5. Returns parsed JSON dict on success, None on
-    rate-limit (caller falls through to Groq). Raises on hard errors.
+    Call Claude Haiku 4.5. Returns parsed JSON dict on success, or None when the
+    primary is unusable (rate-limited, or no/invalid ANTHROPIC_API_KEY) so the
+    caller transparently falls through to the Groq fallback. Raises only on
+    genuinely unexpected hard errors.
     """
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        # Primary not configured on this host -> use the Groq fallback silently.
+        return None
     client = _get_anthropic()
 
     system_content = ""
@@ -106,7 +123,7 @@ def _call_anthropic(messages: list[dict], max_tokens: int, retries: int) -> "dic
             return parsed
         except Exception as err:  # noqa: BLE001
             last_err = err
-            if _is_rate_limit(err):
+            if _is_rate_limit(err) or _is_auth_or_config(err):
                 return None  # signal: fall through to Groq
             if attempt < retries:
                 time.sleep(1.5 * (attempt + 1))
