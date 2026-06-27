@@ -1,3 +1,4 @@
+import json
 import os
 import sqlite3
 from datetime import datetime
@@ -37,6 +38,46 @@ def init_db():
         cols = {row["name"] for row in conn.execute("PRAGMA table_info(applications)")}
         if "client_id" not in cols:
             conn.execute("ALTER TABLE applications ADD COLUMN client_id TEXT")
+        # Content-addressed cache of LLM analysis results (parse + score + diagnose),
+        # so an identical résumé/JD pair never re-pays for the LLM calls. The key
+        # folds in a pipeline version so a prompt/model change invalidates old rows.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS analysis_cache (
+                cache_key TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                payload TEXT NOT NULL
+            )
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def cache_get_analysis(cache_key: str) -> Optional[dict]:
+    """Returns a previously cached analysis payload (dict) for this key, or None."""
+    init_db()
+    conn = _get_connection()
+    try:
+        row = conn.execute(
+            "SELECT payload FROM analysis_cache WHERE cache_key = ?", (cache_key,)
+        ).fetchone()
+        return json.loads(row["payload"]) if row else None
+    finally:
+        conn.close()
+
+
+def cache_put_analysis(cache_key: str, payload: dict) -> None:
+    """Stores an analysis payload (dict) under a content-addressed key."""
+    init_db()
+    conn = _get_connection()
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO analysis_cache (cache_key, created_at, payload) "
+            "VALUES (?, ?, ?)",
+            (cache_key, datetime.now().isoformat(), json.dumps(payload)),
+        )
         conn.commit()
     finally:
         conn.close()

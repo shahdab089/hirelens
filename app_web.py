@@ -6,6 +6,7 @@ analytics). Serves the custom frontend in web/static and exposes a small JSON AP
 The Groq API key lives only on the server (env var GROQ_API_KEY) — clients never
 send it. Per-visitor history is scoped by an anonymous client_id.
 """
+import hashlib
 import os
 import tempfile
 
@@ -30,9 +31,9 @@ from core.contacts import extract_contacts
 from core.llm import GroqRateLimit
 from core.outreach import draft_outreach
 from core.parsing import extract_text, parse_both, parse_jd, parse_resume
-from core.schema import ApplicationRecord
+from core.schema import ApplicationRecord, Diagnosis, FitScore, ParsedJD, ParsedResume
 from core.scoring import score_and_diagnose
-from storage import load_by_client, save, set_outcome
+from storage import cache_get_analysis, cache_put_analysis, load_by_client, save, set_outcome
 
 BASE = Path(__file__).parent
 STATIC_DIR = BASE / "web" / "static"
@@ -48,7 +49,49 @@ STAGE_LABELS = {
     "likely_fine": "Looks fine",
 }
 
+# Bump this whenever the parsing/scoring/diagnosis PROMPTS change, so the result
+# cache (keyed on it) is invalidated and the new prompts take effect. The active
+# model IDs are folded into the key automatically below.
+ANALYSIS_PIPELINE_VERSION = "v1"
+
+
+def _analysis_cache_key(resume_text: str, jd_text: str) -> str:
+    """Content-addressed key for an analysis: identical inputs + same pipeline
+    (prompt version + model IDs) → same key → reuse the stored result, no LLM call."""
+    pipeline = "|".join((
+        ANALYSIS_PIPELINE_VERSION,
+        os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5"),
+        os.environ.get("GROQ_FALLBACK_MODEL", "llama-3.3-70b-versatile"),
+    ))
+    h = hashlib.sha256()
+    for part in (pipeline, resume_text.strip(), jd_text.strip()):
+        h.update(part.encode("utf-8"))
+        h.update(b"\x00")
+    return h.hexdigest()
+
+
+SAMPLE_CACHE_FILE = BASE / "data" / "sample_cache.json"
+
+
+def _seed_sample_cache() -> None:
+    """Load precomputed sample analyses into the (ephemeral) result cache on boot so
+    the built-in 'Try a sample' demos never cost an LLM call — even after a redeploy
+    wipes the on-disk cache. No-op if the file is absent or unreadable; seeding must
+    never break startup. Regenerate the file via scripts/precompute_sample_cache.py."""
+    try:
+        if not SAMPLE_CACHE_FILE.exists():
+            return
+        import json
+        entries = json.loads(SAMPLE_CACHE_FILE.read_text(encoding="utf-8"))
+        for cache_key, payload in entries.items():
+            if cache_get_analysis(cache_key) is None:
+                cache_put_analysis(cache_key, payload)
+    except Exception:  # noqa: BLE001 — never let seeding break startup
+        pass
+
+
 app = FastAPI(title="Hirelens", docs_url="/api/docs")
+_seed_sample_cache()
 
 
 # ------------------------------------------------------------- request models -
@@ -121,18 +164,35 @@ def health():
 
 @app.post("/api/analyze")
 def api_analyze(req: AnalyzeReq):
-    _require_key()
     if not req.resume_text.strip() or not req.jd_text.strip():
         raise HTTPException(400, "Please provide both a résumé and a job description.")
-    try:
-        resume, jd = parse_both(req.resume_text, req.jd_text)
-        fit, diag = score_and_diagnose(resume, jd)
-    except ValueError as err:
-        raise HTTPException(400, f"Could not parse the inputs: {err}")
-    except GroqRateLimit:
-        raise HTTPException(429, "We're experiencing high demand right now — please wait a minute and try again.")
-    except Exception as err:  # noqa: BLE001
-        raise HTTPException(500, f"Analysis failed: {err}")
+
+    # Reuse a prior result for an identical résumé/JD pair — no LLM call (and no key
+    # required) on a cache hit, which also makes the pre-seeded samples free to serve.
+    cache_key = _analysis_cache_key(req.resume_text, req.jd_text)
+    cached = cache_get_analysis(cache_key)
+    if cached is not None:
+        resume = ParsedResume.model_validate(cached["resume"])
+        jd = ParsedJD.model_validate(cached["jd"])
+        fit = FitScore.model_validate(cached["fit"])
+        diag = Diagnosis.model_validate(cached["diagnosis"])
+    else:
+        _require_key()
+        try:
+            resume, jd = parse_both(req.resume_text, req.jd_text)
+            fit, diag = score_and_diagnose(resume, jd)
+        except ValueError as err:
+            raise HTTPException(400, f"Could not parse the inputs: {err}")
+        except GroqRateLimit:
+            raise HTTPException(429, "We're experiencing high demand right now — please wait a minute and try again.")
+        except Exception as err:  # noqa: BLE001
+            raise HTTPException(500, f"Analysis failed: {err}")
+        cache_put_analysis(cache_key, {
+            "resume": resume.model_dump(mode="json"),
+            "jd": jd.model_dump(mode="json"),
+            "fit": fit.model_dump(mode="json"),
+            "diagnosis": diag.model_dump(mode="json"),
+        })
 
     record = ApplicationRecord(
         id=str(uuid4()),
