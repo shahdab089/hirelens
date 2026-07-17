@@ -242,62 +242,74 @@ def score_and_diagnose(resume: ParsedResume, jd: ParsedJD) -> tuple[FitScore, Di
     }
 
     system = (
-        "You are a brutally honest technical recruiter AND career coach. You score "
-        "how well a candidate fits a role, then diagnose why the application most "
-        "likely failed. Output only JSON."
+        "You are an enterprise ATS simulation engine that models exactly how "
+        "Greenhouse, Workday, Lever, iCIMS, Taleo, and SuccessFactors parse and "
+        "rank résumés. You score with clinical precision — not to encourage the "
+        "candidate, but to reflect the actual algorithmic outcome. Output only JSON."
     )
     user = (
-        "Do TWO things for this application and return both in one JSON object.\n\n"
-        "PART 1 -- SCORE each of exactly these dimensions 0.0-1.0: "
-        f"{SUBSCORE_NAMES}.\n"
-        "CRITICAL -- judge everything against the candidate FULL resume text "
-        "(skills, work experience, education, AND project descriptions), not just "
-        "the extracted skills list. A requirement is MATCHED if it appears anywhere "
-        "in the resume, by meaning. Concrete rules:\n"
-        "  * 'Bachelor degree' is satisfied by B.Tech, B.E., B.S., B.Sc., B.A.,\n"
-        "    Bachelor of Science/Arts/Engineering, or any master degree.\n"
-        "  * '4-year degree' / 'university degree' / 'undergraduate degree' is\n"
-        "    satisfied by any bachelor or master degree.\n"
-        "  * 'Bachelor in CS, Economics, Statistics or related quantitative field'\n"
-        "    is satisfied by any engineering or data-science degree.\n"
-        "  * SQL listed as a skill satisfies 'Advanced SQL'.\n"
-        "  * Snowflake or BigQuery mentioned anywhere satisfies 'modern data warehouses'.\n"
-        "  * A tool or skill mentioned in a PROJECT bullet counts, even if absent\n"
-        "    from the top-level skills list. Check the 'projects' field too.\n"
-        "  * Skills built specifically for this role (mentioned in a project built\n"
-        "    to match the JD) count as relevant domain experience.\n"
-        "Put a requirement in missing_skills ONLY if genuinely absent from the\n"
-        "entire resume (including projects). When unsure, lean toward matched.\n\n"
-        "Dimensions:\n"
-        "- skills: do they have the required hard skills (judged against full resume)?\n"
-        "- seniority: junior ~0-2 yrs, mid ~3-5, senior ~5-9, staff/lead ~9+.\n"
-        "  Score 0.8+ when years fit the role level or stated 'X+ years' bar.\n"
-        "  Only score low when there is a clear gap.\n"
-        "- keywords_ats: would an ATS keyword screen pass their resume for this JD?\n"
-        "- domain: is their industry/role domain a match?\n\n"
-        "FEATURE -- RANK missing_skills by how critical each gap is to THIS role\n"
-        "(most critical / hardest-to-ignore gap first, nice-to-have last).\n\n"
-        "PART 2 -- DIAGNOSE the single most likely rejection stage from exactly:\n"
-        f"{_STAGES}.\n"
-        "- keyword_ats: filtered by an ATS keyword screen.\n"
-        "- seniority_mismatch: ONLY when years fall clearly short of role minimum.\n"
-        "- skills_gap: missing required hard skills.\n"
-        "- domain_mismatch: wrong industry/role domain.\n"
-        "- competitive: qualified but likely out-competed.\n"
-        "- likely_fine: no obvious flaw -- probably volume/luck.\n"
-        "Decision rule: if overall_fit >= 0.8 and no sub-score < 0.5, prefer 'likely_fine'.\n"
-        "CRITICAL for top_fixes: NEVER tell the candidate to gain, learn, or get\n"
-        "certified in any skill already in their resume or matched_skills.\n"
-        "Base fixes only on genuine gaps and positioning/presentation.\n\n"
-        "Return JSON with this EXACT shape:\n"
-        '{"overall": <float 0-1>, '
-        '"subscores": [{"name": <one of the four>, "score": <float 0-1>, "rationale": <one sentence>}, ...], '
-        '"matched_skills": [<JD requirements satisfied>], '
-        '"missing_skills": [<JD requirements lacked, ranked most-critical first>], '
-        '"likely_stage": <one value from the stage list>, '
-        '"headline": <one brutal, specific sentence>, '
-        '"explanation": <2-4 sentences naming the concrete reason>, '
-        '"top_fixes": [<2-4 concrete, actionable fixes>]}\n\n'
+        "Run the 4-STEP ATS AUDIT below, then diagnose the rejection stage.\n\n"
+
+        "STEP A — EXTRACT JD REQUIREMENTS into buckets:\n"
+        "  hard_tools    : specific platforms/languages/tools required (e.g. 'Snowflake', 'GA4', 'dbt')\n"
+        "  hard_skills   : methods/competencies required (e.g. 'A/B testing', 'attribution modeling')\n"
+        "  certifications: degrees, certs, licences required or strongly preferred\n"
+        "  years_req     : minimum experience duration (e.g. '5+ years')\n"
+        "  industry_terms: domain/sector keywords ATS weights heavily (e.g. 'financial institutions')\n"
+        "  nice_to_have  : explicitly preferred but not required\n\n"
+
+        "STEP B — FOR EVERY item in hard_tools + hard_skills + certifications, "
+        "classify its presence in the FULL résumé text (work history, projects, "
+        "skills section, education — everywhere):\n"
+        "  EXACT    : the exact term or standard abbreviation appears verbatim\n"
+        "  SYNONYM  : a universally accepted equivalent is present\n"
+        "             (BigQuery/Redshift → 'cloud data warehouse'; B.Tech → 'Bachelor';\n"
+        "              Pandas/NumPy → 'Python data manipulation'; PySpark → 'Spark')\n"
+        "  CONTEXT  : the skill is clearly demonstrated in work bullets without naming it\n"
+        "  ABSENT   : genuinely not found anywhere — this ALONE goes into missing_skills\n\n"
+        "MATCH RULES (get these exactly right):\n"
+        "  • Any mention in projects section counts equally to the skills section.\n"
+        "  • B.Tech / B.E. / B.S. / B.Sc. / M.S. / M.Sc. satisfy 'Bachelor degree'.\n"
+        "  • 'Advanced SQL' is satisfied if SQL appears and the résumé shows complex queries.\n"
+        "  • 'Google Analytics (GA4)' is ABSENT unless GA or GA4 appears explicitly — do NOT infer.\n"
+        "  • Candidate years_experience ≥ years_req → seniority satisfied; partial credit within 1 yr.\n\n"
+
+        "STEP C — COMPUTE SCORES from match rates (use these exact formulas):\n"
+        "  Let N = total items in hard_tools + hard_skills (exclude nice_to_have).\n"
+        "  keywords_ats = (exact_count + 0.6 × synonym_count) / N\n"
+        "     Greenhouse/Workday weight verbatim matches highest; synonyms score 60%.\n"
+        "  skills       = (exact_count + synonym_count + 0.7 × context_count) / N\n"
+        "  seniority    : 1.0 if years ≥ required; 0.85 if 1 yr short; "
+        "0.65 if 2 yrs short; 0.40 if 3+ yrs short\n"
+        "  domain       = (industry_terms matched) / (total industry_terms in JD); min 0.10\n"
+        "  overall      = 0.35×keywords_ats + 0.30×skills + 0.20×seniority + 0.15×domain\n"
+        "  (clamp all to [0.0, 1.0])\n\n"
+
+        "STEP D — GAP ANALYSIS:\n"
+        "  missing_skills = ONLY ABSENT items, ranked most-critical-to-this-role first.\n"
+        "  matched_skills = EXACT + SYNONYM + CONTEXT items with brief evidence.\n"
+        "  top_fixes: address ABSENT gaps or poor keyword positioning ONLY.\n"
+        "  NEVER suggest gaining a skill the résumé already demonstrates.\n\n"
+
+        "DIAGNOSE the single most likely ATS/recruiter rejection stage:\n"
+        f"  Choose from: {_STAGES}\n"
+        "  keyword_ats        : keywords_ats < 0.60 — ATS auto-rejects before human review.\n"
+        "  seniority_mismatch : years clearly below the stated minimum.\n"
+        "  skills_gap         : hard skill absences a recruiter would catch.\n"
+        "  domain_mismatch    : wrong sector/industry for this role.\n"
+        "  competitive        : qualified but likely out-competed.\n"
+        "  likely_fine        : overall ≥ 0.80, no sub-score < 0.55 — volume/luck issue.\n\n"
+
+        "Return JSON with EXACTLY this shape:\n"
+        '{"overall": <computed float 0-1>, '
+        '"subscores": [{"name": <one of ' + str(SUBSCORE_NAMES) + '>, '
+        '"score": <float 0-1>, "rationale": <cite specific counts/evidence>}, ...], '
+        '"matched_skills": [<requirement — brief evidence>], '
+        '"missing_skills": [<absent requirement, most critical first>], '
+        '"likely_stage": <one value from stage list>, '
+        '"headline": <one blunt sentence stating the primary ATS blocker>, '
+        '"explanation": <2-4 sentences with exact evidence — tool names, counts, gaps>, '
+        '"top_fixes": [<2-4 ATS-specific actionable fixes tied to real ABSENT items>]}\n\n'
         f"Application data:\n{json.dumps(context, indent=2)}"
     )
 
