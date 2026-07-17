@@ -601,13 +601,175 @@ async function optimize() {
 
     $("opt-body").textContent = data.optimized_resume;
     $("opt-result").hidden = false;
+    $("compare-panel").hidden = true;
     $("opt-result").scrollIntoView({ behavior: "smooth" });
     btn.innerHTML = `🔄 Re-optimize`;
+
+    // Auto-trigger before/after rescore
+    rescoreAndCompare(data.optimized_resume);
   } catch (e) {
     showOptError("Network error — please try again.");
   } finally {
     btn.disabled = false;
     if (btn.innerHTML.includes("Optimizing")) btn.innerHTML = origText;
+  }
+}
+
+// ─────────────────────────────── before / after rescore ──────────────────────
+async function rescoreAndCompare(optimizedText) {
+  if (!lastAnalysis) return;
+  const jd_text = $("jd-text").value.trim();
+  if (!optimizedText || !jd_text) return;
+
+  const panel = $("compare-panel");
+  panel.hidden = false;
+  $("compare-rows").innerHTML = `<div style="color:var(--muted);font-size:.88rem;padding:12px 0">⏳ Re-scoring optimized résumé…</div>`;
+
+  try {
+    const res = await fetch("/api/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resume_text: optimizedText, jd_text }),
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    renderComparison(lastAnalysis, data);
+  } catch (_) { panel.hidden = true; }
+}
+
+function renderComparison(before, after) {
+  const bPct = Math.round(before.overall * 100);
+  const aPct = Math.round(after.overall * 100);
+  const delta = aPct - bPct;
+
+  $("cmp-before").textContent = bPct + "%";
+  $("cmp-after").textContent  = aPct + "%";
+  const dpill = $("cmp-delta");
+  dpill.textContent = (delta >= 0 ? "+" : "") + delta + " pts";
+  dpill.style.background = delta >= 5 ? "rgba(74,222,128,0.15)" : delta >= 0 ? "rgba(251,191,36,0.12)" : "rgba(248,113,113,0.12)";
+  dpill.style.color = delta >= 5 ? "var(--brand)" : delta >= 0 ? "var(--warn)" : "var(--danger)";
+  dpill.style.borderColor = delta >= 5 ? "rgba(74,222,128,0.3)" : delta >= 0 ? "rgba(251,191,36,0.3)" : "rgba(248,113,113,0.3)";
+
+  const rows = [
+    { label: "Overall Fit", b: bPct, a: aPct },
+    ...(before.subscores || []).map((s) => {
+      const aS = (after.subscores || []).find((x) => x.name === s.name);
+      return {
+        label: s.name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+        b: Math.round(s.score * 100),
+        a: aS ? Math.round(aS.score * 100) : Math.round(s.score * 100),
+      };
+    }),
+  ];
+
+  const rowsEl = $("compare-rows");
+  rowsEl.innerHTML = rows.map((r) => {
+    const d = r.a - r.b;
+    const col = d > 0 ? "var(--brand)" : d < 0 ? "var(--danger)" : "var(--muted)";
+    return `
+      <div class="compare-row">
+        <span class="compare-label">${escapeHtml(r.label)}</span>
+        <div class="compare-bar-group">
+          <div class="compare-bar-track"><div class="compare-bar-fill before" style="width:0%" data-w="${r.b}"></div></div>
+          <div class="compare-bar-track" style="margin-top:4px"><div class="compare-bar-fill after" style="width:0%" data-w="${r.a}"></div></div>
+          <div class="compare-pcts"><span>${r.b}% before</span><span style="color:${col}">${r.a}% after</span></div>
+        </div>
+        <span class="compare-delta" style="color:${col}">${d >= 0 ? "+" : ""}${d}pts</span>
+      </div>`;
+  }).join("");
+
+  // Animate bars in
+  requestAnimationFrame(() => {
+    rowsEl.querySelectorAll(".compare-bar-fill").forEach((el) => {
+      el.style.width = el.dataset.w + "%";
+    });
+  });
+}
+
+// ─────────────────────────────── cover letter ─────────────────────────────────
+async function generateCoverLetter() {
+  if (!lastAnalysis) return;
+  const panel = $("cl-panel");
+  const body  = $("cl-body");
+  const spin  = $("cl-spinner");
+  const btn   = $("btn-coverletter");
+
+  panel.hidden = false;
+  panel.scrollIntoView({ behavior: "smooth", block: "start" });
+  spin.hidden = false;
+  body.textContent = "";
+  btn.disabled = true;
+  const orig = btn.innerHTML;
+  btn.innerHTML = `<svg class="spin-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Writing…`;
+
+  try {
+    const res = await fetch("/api/cover-letter", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        resume_text: $("resume-text").value.trim(),
+        jd_text:     $("jd-text").value.trim(),
+        matched_skills: lastAnalysis.matched_skills || [],
+        missing_skills: lastAnalysis.missing_skills || [],
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) { body.textContent = "Error: " + (data.detail || "Generation failed."); return; }
+    body.textContent = data.cover_letter;
+  } catch (_) {
+    body.textContent = "Network error — please try again.";
+  } finally {
+    spin.hidden = true;
+    btn.disabled = false;
+    btn.innerHTML = orig;
+  }
+}
+
+// ─────────────────────────────── format checker ───────────────────────────────
+async function checkFormat(file) {
+  const panel   = $("fmt-panel");
+  const spinner = $("fmt-spinner");
+  const list    = $("fmt-list");
+  const verdict = $("fmt-verdict");
+
+  panel.hidden   = false;
+  spinner.hidden = false;
+  list.innerHTML = "";
+  verdict.textContent = "—";
+  verdict.className = "fmt-verdict";
+  panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+
+  const fd = new FormData();
+  fd.append("file", file);
+
+  try {
+    const res  = await fetch("/api/check-format", { method: "POST", body: fd });
+    const data = await res.json();
+    if (!res.ok) {
+      list.innerHTML = `<div class="fmt-item error"><span class="fmt-icon">❌</span><div class="fmt-msg">${escapeHtml(data.detail || "Could not analyse file.")}</div></div>`;
+      return;
+    }
+
+    verdict.textContent = data.verdict_label;
+    verdict.classList.add(data.verdict);
+
+    const items = [
+      ...data.issues.map((i) => ({ ...i, kind: i.severity })),
+      ...data.passes.map((p) => ({ kind: "pass", message: p })),
+    ];
+
+    list.innerHTML = items.map((it) => {
+      const icon = it.kind === "pass" ? "✅" : it.kind === "warning" ? "⚠️" : "❌";
+      const cls  = it.kind === "pass" ? "pass" : it.kind === "warning" ? "warning" : "error";
+      return `<div class="fmt-item ${cls}">
+        <span class="fmt-icon">${icon}</span>
+        <div class="fmt-msg">${escapeHtml(it.message)}</div>
+      </div>`;
+    }).join("");
+  } catch (_) {
+    list.innerHTML = `<div class="fmt-item error"><span class="fmt-icon">❌</span><div class="fmt-msg">Network error — please try again.</div></div>`;
+  } finally {
+    spinner.hidden = true;
   }
 }
 
@@ -625,6 +787,25 @@ $("btn-copy-opt").addEventListener("click", () => {
     btn.textContent = "Copied ✓";
     setTimeout(() => { btn.textContent = orig; }, 1600);
   });
+});
+
+// ---- cover letter button ----
+$("btn-coverletter").addEventListener("click", generateCoverLetter);
+$("btn-copy-cl").addEventListener("click", () => {
+  const text = $("cl-body").textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = $("btn-copy-cl"); const orig = btn.textContent;
+    btn.textContent = "Copied ✓";
+    setTimeout(() => { btn.textContent = orig; }, 1600);
+  });
+});
+
+// ---- ATS format checker ----
+$("fmt-file").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  e.target.value = "";   // reset so same file can be re-checked
+  checkFormat(file);
 });
 
 // ---- rotating headline word ----
@@ -655,4 +836,90 @@ $("btn-copy-opt").addEventListener("click", () => {
   els.forEach((e) => io.observe(e));
   // safety: never leave content invisible
   setTimeout(() => els.forEach((e) => e.classList.add("in")), 1600);
+})();
+
+// ================================================================ PARTICLES ===
+(function initParticleNetwork() {
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+  const canvas = document.createElement("canvas");
+  canvas.id = "bg-canvas";
+  canvas.setAttribute("aria-hidden", "true");
+  document.body.prepend(canvas);
+
+  const ctx = canvas.getContext("2d");
+  const COLORS = ["74,222,128", "34,211,238", "129,140,248"];
+  const LINE   = 135;
+  const mouse  = { x: -999, y: -999 };
+  let W, H, pts;
+
+  class Dot {
+    reset(w, h) {
+      this.x  = Math.random() * w;
+      this.y  = Math.random() * h;
+      this.vx = (Math.random() - 0.5) * 0.42;
+      this.vy = (Math.random() - 0.5) * 0.42;
+      this.r  = Math.random() * 1.2 + 0.6;
+      this.c  = COLORS[Math.floor(Math.random() * COLORS.length)];
+      return this;
+    }
+    tick(w, h) {
+      const dx = mouse.x - this.x, dy = mouse.y - this.y;
+      const md = Math.hypot(dx, dy);
+      if (md < 160 && md > 0) { this.vx += (dx / md) * 0.016; this.vy += (dy / md) * 0.016; }
+      this.vx *= 0.984; this.vy *= 0.984;
+      const spd = Math.hypot(this.vx, this.vy);
+      if (spd > 0.88) { this.vx = (this.vx / spd) * 0.88; this.vy = (this.vy / spd) * 0.88; }
+      this.x = (this.x + this.vx + w) % w;
+      this.y = (this.y + this.vy + h) % h;
+    }
+  }
+
+  function resize() {
+    W = canvas.width  = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+  }
+
+  function setup() {
+    resize();
+    const n = window.innerWidth < 768 ? 30 : 65;
+    pts = Array.from({ length: n }, () => new Dot().reset(W, H));
+  }
+
+  function frame() {
+    ctx.clearRect(0, 0, W, H);
+    const n = pts.length;
+    for (let i = 0; i < n; i++) {
+      pts[i].tick(W, H);
+      // draw connections
+      for (let j = i + 1; j < n; j++) {
+        const d = Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y);
+        if (d < LINE) {
+          ctx.beginPath();
+          ctx.moveTo(pts[i].x, pts[i].y);
+          ctx.lineTo(pts[j].x, pts[j].y);
+          ctx.strokeStyle = `rgba(${pts[i].c},${(1 - d / LINE) * 0.18})`;
+          ctx.lineWidth   = 0.85;
+          ctx.stroke();
+        }
+      }
+      // draw dot
+      ctx.beginPath();
+      ctx.arc(pts[i].x, pts[i].y, pts[i].r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${pts[i].c},0.55)`;
+      ctx.fill();
+    }
+    requestAnimationFrame(frame);
+  }
+
+  let resizeTimer;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(setup, 120);
+  });
+  window.addEventListener("mousemove", (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
+  window.addEventListener("mouseleave", () => { mouse.x = -999; mouse.y = -999; });
+
+  setup();
+  frame();
 })();

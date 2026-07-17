@@ -294,6 +294,178 @@ def api_optimize(req: OptimizeReq):
     return {"optimized_resume": optimized}
 
 
+# ─────────────────────────────────────────── /api/cover-letter ───────────────
+
+class CoverLetterReq(BaseModel):
+    resume_text: str
+    jd_text: str
+    matched_skills: list[str] = []
+    missing_skills: list[str] = []
+
+
+_COVER_LETTER_SYSTEM = """\
+You are a master cover letter writer who has helped thousands of candidates land interviews \
+at FAANG, McKinsey, and Fortune 500 companies. You write cover letters that clear ATS filters \
+AND captivate the hiring manager who reads them after.
+
+RULES YOU NEVER BREAK:
+1. NEVER open with "I am writing to apply", "I am excited to apply", or any cliché variant. \
+   Open with the candidate's single strongest achievement relevant to this role.
+2. Mirror the top 5-6 JD keywords VERBATIM in natural, flowing sentences — ATS scores keyword density.
+3. Reference 2-3 specific achievements from the résumé with EXACT metrics (never round or inflate).
+4. Exactly 3 paragraphs: (1) hook + why this specific role, (2) proof from 2-3 achievements, \
+   (3) domain fit + confident, specific CTA.
+5. Maximum 270 words. Every sentence earns its place. No filler.
+6. Sound like a sharp, confident professional wrote it — not a generic template.
+7. End with: "I'd welcome a conversation to discuss how I can [specific value from the role]."
+8. Output ONLY the 3-paragraph letter body. No date, no address, no salutation, no subject line.\
+"""
+
+
+@app.post("/api/cover-letter")
+def api_cover_letter(req: CoverLetterReq):
+    _require_key()
+    from core.llm import GroqRateLimit, chat_text
+
+    if not req.resume_text.strip() or not req.jd_text.strip():
+        raise HTTPException(400, "Please provide both a résumé and a job description.")
+
+    matched_str = ", ".join(req.matched_skills[:12]) or "see résumé"
+    missing_str = ", ".join(req.missing_skills[:8]) or "none identified"
+
+    user_prompt = (
+        f"JOB DESCRIPTION:\n{req.jd_text.strip()[:2500]}\n\n"
+        f"CANDIDATE RÉSUMÉ:\n{req.resume_text.strip()[:3500]}\n\n"
+        f"ATS KEYWORDS ALREADY MATCHED: {matched_str}\n"
+        f"KEYWORDS TO WEAVE IN NATURALLY: {missing_str}\n\n"
+        "Write the 3-paragraph cover letter body now. "
+        "Open with the candidate's strongest measurable achievement relevant to this role."
+    )
+
+    try:
+        letter = chat_text(_COVER_LETTER_SYSTEM, user_prompt, max_tokens=900)
+    except GroqRateLimit:
+        raise HTTPException(429, "High demand — please wait a moment and try again.")
+    except Exception as err:
+        raise HTTPException(500, f"Cover letter generation failed: {err}")
+
+    return {"cover_letter": letter}
+
+
+# ─────────────────────────────────────────── /api/check-format ───────────────
+
+@app.post("/api/check-format")
+async def api_check_format(file: UploadFile = File(...)):
+    """Analyse a PDF résumé for ATS-hostile formatting issues using pypdf."""
+    import io
+    import pypdf
+
+    if not (file.filename or "").lower().endswith(".pdf"):
+        raise HTTPException(400, "Only PDF files are supported for format checking.")
+
+    content = await file.read()
+    issues: list[dict] = []
+    passes: list[str] = []
+
+    try:
+        reader = pypdf.PdfReader(io.BytesIO(content))
+    except Exception as exc:
+        raise HTTPException(422, f"Could not open PDF: {exc}")
+
+    # ── 1. Encrypted ──────────────────────────────────────────────────────────
+    if reader.is_encrypted:
+        issues.append({"severity": "error", "code": "encrypted",
+            "message": "PDF is password-protected — ATS systems cannot parse encrypted files at all. Export an unlocked PDF from Word or Google Docs."})
+
+    # ── 2. Embedded images ────────────────────────────────────────────────────
+    has_images = False
+    try:
+        res = reader.pages[0].get("/Resources", {})
+        xobj = res.get("/XObject", {})
+        if hasattr(xobj, "get_object"):
+            xobj = xobj.get_object()
+        for k in (xobj or {}):
+            obj = xobj[k]
+            if hasattr(obj, "get_object"):
+                obj = obj.get_object()
+            if obj.get("/Subtype") == "/Image":
+                has_images = True
+                break
+    except Exception:
+        pass
+
+    if has_images:
+        issues.append({"severity": "error", "code": "has_images",
+            "message": "Embedded images detected — ATS cannot read image content. Remove logos, profile photos, and decorative graphics."})
+    else:
+        passes.append("No embedded images — all content is machine-readable text")
+
+    # ── 3. Extract text + character positions ─────────────────────────────────
+    all_text = ""
+    positions: list[dict] = []
+
+    def _record(text, cm, tm, font_dict, font_size):
+        if text.strip():
+            positions.append({"x": float(tm[4]), "y": float(tm[5])})
+
+    for pg in reader.pages:
+        try:
+            pg.extract_text(visitor_text=_record)
+        except Exception:
+            pass
+        all_text += (pg.extract_text() or "")
+
+    # ── 4. Text density ───────────────────────────────────────────────────────
+    if len(all_text.strip()) < 150:
+        issues.append({"severity": "error", "code": "low_text",
+            "message": "Very little extractable text found — this PDF may be image-based (scanned). ATS would see a blank document. Export from Word or Google Docs instead."})
+    else:
+        passes.append("Good text density — ATS can extract your content")
+
+    # ── 5. Multi-column detection (x-coordinate clustering) ───────────────────
+    if positions:
+        x_vals = [p["x"] for p in positions if p["x"] > 20]
+        if x_vals:
+            page_w = max(x_vals)
+            mid = page_w / 2
+            left_n  = sum(1 for x in x_vals if x < mid * 0.55)
+            right_n = sum(1 for x in x_vals if x > mid * 1.45)
+            if left_n > 8 and right_n > 8 and right_n > left_n * 0.25:
+                issues.append({"severity": "error", "code": "multi_column",
+                    "message": "Multi-column layout detected — Workday and Taleo parse columns left-to-right then top-to-bottom, scrambling your work history with your skills section. Switch to a single-column format."})
+            else:
+                passes.append("Single-column layout — ATS will read sections in the correct order")
+
+    # ── 6. Standard section headers ───────────────────────────────────────────
+    tl = all_text.lower()
+    found_hdrs = [h for h in ["experience", "education", "skills", "summary"] if h in tl]
+    if len(found_hdrs) >= 2:
+        passes.append(f"Standard section headers found — ATS section parser will categorise correctly")
+    else:
+        issues.append({"severity": "warning", "code": "missing_headers",
+            "message": "Standard section headers not detected. Use exactly: 'Work Experience', 'Technical Skills', 'Education', 'Professional Summary' — ATS parsers depend on these labels."})
+
+    # ── 7. Page count ─────────────────────────────────────────────────────────
+    pg_count = len(reader.pages)
+    if pg_count > 2:
+        issues.append({"severity": "warning", "code": "too_long",
+            "message": f"{pg_count} pages — most ATS systems only score page 1 in detail. Keep to 1–2 pages for senior roles."})
+    else:
+        passes.append(f"{pg_count} page{'s' if pg_count > 1 else ''} — within optimal ATS length")
+
+    error_count = sum(1 for i in issues if i["severity"] == "error")
+    warn_count  = sum(1 for i in issues if i["severity"] == "warning")
+
+    if   error_count == 0 and warn_count == 0: verdict, label = "clean",    "ATS-Ready ✓"
+    elif error_count == 0:                     verdict, label = "warnings", "Mostly Safe"
+    elif error_count <= 2:                     verdict, label = "issues",   "Needs Fixes"
+    else:                                      verdict, label = "critical", "High Risk"
+
+    return {"verdict": verdict, "verdict_label": label,
+            "issues": issues, "passes": passes,
+            "error_count": error_count, "warn_count": warn_count}
+
+
 @app.post("/api/triage")
 def api_triage(req: TriageReq):
     """
