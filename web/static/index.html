@@ -208,6 +208,46 @@
         </div>
       </div>
 
+      <!-- READY FOR OPTIMIZATION PANEL -->
+      <div class="card ready-panel" id="ready-panel" hidden>
+        <div class="rp-header">
+          <div class="rp-header-left">
+            <span class="rp-pulse" aria-hidden="true"></span>
+            <div>
+              <h3 class="rp-title">Ready for Optimization</h3>
+              <p class="rp-subtitle">Analysis complete — here's what the AI will fix in your résumé</p>
+            </div>
+          </div>
+          <div class="rp-score-box">
+            <div class="rp-score-label">PROJECTED SCORE</div>
+            <div class="rp-score-value">
+              <span id="rp-lo">—</span><span class="rp-sep"> – </span><span id="rp-hi">—</span><span class="rp-unit"> /100</span>
+            </div>
+            <div class="rp-score-from">from <b id="rp-from">—</b> (<span id="rp-delta">+? pts</span>)</div>
+          </div>
+        </div>
+        <div class="rp-cards" id="rp-cards"></div>
+        <div class="rp-footer">
+          <button class="btn btn-primary btn-lg rp-cta" id="btn-optimize">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3l14 9-14 9V3z"/><path d="M19 3v18"/></svg>
+            Optimize &amp; Re-Score Résumé
+          </button>
+          <span class="rp-eta">⚡ Usually completes in 20–40 s. No data is stored.</span>
+        </div>
+        <div id="optimize-error" class="error-box" style="margin-top:14px" hidden></div>
+      </div>
+
+      <!-- OPTIMIZED RESUME RESULT -->
+      <div class="card opt-result" id="opt-result" hidden>
+        <div class="opt-result-head">
+          <h3>✨ Optimized Résumé</h3>
+          <div class="opt-actions">
+            <button class="btn btn-ghost btn-sm" id="btn-copy-opt">Copy text</button>
+          </div>
+        </div>
+        <div class="opt-body" id="opt-body"></div>
+      </div>
+
       <div class="card reachout" id="reachout-card">
         <h3>📨 Reach out to the recruiter</h3>
         <div id="contacts-box" class="contacts-box"></div>

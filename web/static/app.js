@@ -76,6 +76,7 @@ async function analyze() {
     lastRecord = data.record;
     lastAnalysis = data;
     renderResults(data);
+    renderReadyPanel(data);
     $("results").hidden = false;
     $("results").scrollIntoView({ behavior: "smooth" });
   } catch (e) {
@@ -502,6 +503,129 @@ function exportTriageCsv() {
   URL.revokeObjectURL(link.href);
 }
 $("t-export-csv").addEventListener("click", exportTriageCsv);
+
+// ---------------------------------------------------------------- ready panel ----
+const RP_ICONS = {
+  keywords: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>`,
+  trending: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>`,
+  briefcase: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="12"/></svg>`,
+  shield: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>`,
+};
+
+function renderReadyPanel(d) {
+  const current = Math.round(d.overall * 100);
+  const subMap = {};
+  (d.subscores || []).forEach((s) => { subMap[s.name] = s.score; });
+
+  // Estimate projected score boost from gaps
+  const kGap = Math.max(0, 0.82 - (subMap.keywords_ats || 0));
+  const sGap = Math.max(0, 0.82 - (subMap.skills || 0));
+  const dGap = Math.max(0, 0.82 - (subMap.domain || 0));
+  const snGap = Math.max(0, 0.82 - (subMap.seniority || 0));
+  const rawBoost = Math.round(kGap * 28 + sGap * 18 + dGap * 14 + snGap * 10);
+  const boost = Math.max(8, Math.min(32, rawBoost || 14));
+  const lo = Math.min(97, current + boost - 2);
+  const hi = Math.min(97, current + boost + 2);
+
+  $("rp-from").textContent = current;
+  $("rp-lo").textContent = lo;
+  $("rp-hi").textContent = hi;
+  $("rp-delta").textContent = `+${boost - 2}–${boost + 2} pts`;
+
+  // Build action cards from subscores
+  const cards = [];
+  const kScore = Math.round((subMap.keywords_ats || 0) * 100);
+  const sScore = Math.round((subMap.skills || 0) * 100);
+  const snScore = Math.round((subMap.seniority || 0) * 100);
+  const dScore = Math.round((subMap.domain || 0) * 100);
+
+  if (kScore < 85) {
+    cards.push({ icon: RP_ICONS.keywords, title: "Inject missing keywords", urgent: false,
+      desc: `Keyword coverage is ${kScore}/100 — will embed all required tech terms contextually` });
+  }
+  if (sScore < 85 || snScore < 75) {
+    cards.push({ icon: RP_ICONS.trending, title: "Reframe experience depth", urgent: false,
+      desc: `Experience alignment is ${Math.min(sScore, snScore)}/100 — will add scale, impact metrics and ownership signals` });
+  }
+  if (dScore < 85) {
+    cards.push({ icon: RP_ICONS.briefcase, title: "Weave in domain context", urgent: dScore < 55,
+      desc: `Domain relevance is ${dScore}/100 — will embed industry-specific language throughout` });
+  }
+  // Always show the "preserve" card
+  cards.push({ icon: RP_ICONS.shield, title: "Preserve dates, company names & links", urgent: false,
+    desc: "Timeline integrity and hyperlinks are never altered" });
+
+  const box = $("rp-cards");
+  box.innerHTML = "";
+  cards.forEach((c) => {
+    const div = document.createElement("div");
+    div.className = "rp-card" + (c.urgent ? " urgent" : "");
+    div.innerHTML =
+      `<div class="rp-card-icon">${c.icon}</div>
+       <div class="rp-card-body"><h4>${escapeHtml(c.title)}</h4><p>${escapeHtml(c.desc)}</p></div>`;
+    box.appendChild(div);
+  });
+
+  $("ready-panel").hidden = false;
+  $("opt-result").hidden = true;
+  $("optimize-error").hidden = true;
+}
+
+// ---------------------------------------------------------------- optimize ----
+async function optimize() {
+  if (!lastAnalysis) return;
+  const btn = $("btn-optimize");
+  const origText = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = `<svg class="spin-svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Optimizing…`;
+  $("optimize-error").hidden = true;
+  $("opt-result").hidden = true;
+
+  const d = lastAnalysis;
+  const missing = (d.missing_skills || []).slice(0, 14);
+  const fixes = (d.diagnosis && d.diagnosis.top_fixes || []).slice(0, 5);
+
+  try {
+    const res = await fetch("/api/optimize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        resume_text: $("resume-text").value.trim(),
+        jd_text: $("jd-text").value.trim(),
+        missing_skills: missing,
+        top_fixes: fixes,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) { showOptError(data.detail || "Optimization failed."); return; }
+
+    $("opt-body").textContent = data.optimized_resume;
+    $("opt-result").hidden = false;
+    $("opt-result").scrollIntoView({ behavior: "smooth" });
+    btn.innerHTML = `🔄 Re-optimize`;
+  } catch (e) {
+    showOptError("Network error — please try again.");
+  } finally {
+    btn.disabled = false;
+    if (btn.innerHTML.includes("Optimizing")) btn.innerHTML = origText;
+  }
+}
+
+function showOptError(msg) {
+  const b = $("optimize-error");
+  b.textContent = msg;
+  b.hidden = false;
+}
+
+$("btn-optimize").addEventListener("click", optimize);
+$("btn-copy-opt").addEventListener("click", () => {
+  const text = $("opt-body").textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = $("btn-copy-opt"); const orig = btn.textContent;
+    btn.textContent = "Copied ✓";
+    setTimeout(() => { btn.textContent = orig; }, 1600);
+  });
+});
 
 // ---- rotating headline word ----
 (function rotateWord() {

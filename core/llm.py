@@ -185,6 +185,54 @@ def chat_json(system: str, user: str, retries: int = 2, max_tokens: int = 1536) 
     return complete_json(messages, max_tokens=max_tokens, retries=retries)
 
 
+def chat_text(system: str, user: str, max_tokens: int = 3000, retries: int = 2) -> str:
+    """Like chat_json but returns a plain text string (e.g. for resume rewriting)."""
+    # Try Anthropic primary
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        client = _get_anthropic()
+        last_err: Exception | None = None
+        for attempt in range(retries + 1):
+            try:
+                resp = client.messages.create(
+                    model=ANTHROPIC_MODEL,
+                    max_tokens=max_tokens,
+                    temperature=0.35,
+                    system=system,
+                    messages=[{"role": "user", "content": user}],
+                )
+                return resp.content[0].text.strip()
+            except Exception as err:  # noqa: BLE001
+                last_err = err
+                if _is_rate_limit(err) or _is_auth_or_config(err):
+                    break  # fall through to Groq
+                if attempt < retries:
+                    time.sleep(1.5 * (attempt + 1))
+
+    # Groq fallback — plain text (no JSON mode)
+    client = _get_groq()
+    last_err = None
+    for attempt in range(retries + 1):
+        try:
+            resp = client.chat.completions.create(
+                model=GROQ_FALLBACK_MODEL,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                temperature=0.35,
+                max_tokens=max_tokens,
+            )
+            return resp.choices[0].message.content.strip()
+        except Exception as err:  # noqa: BLE001
+            last_err = err
+            if _is_rate_limit(err):
+                raise GroqRateLimit("Groq rate-limited during text generation.") from err
+            if attempt < retries:
+                time.sleep(1.5 * (attempt + 1))
+
+    raise RuntimeError(f"Text generation failed after retries: {last_err}") from last_err
+
+
 def get_client() -> Groq:
     """Returns the Groq client (kept for backward compatibility)."""
     return _get_groq()

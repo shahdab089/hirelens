@@ -115,6 +115,13 @@ class OutreachReq(BaseModel):
     record: dict
 
 
+class OptimizeReq(BaseModel):
+    resume_text: str
+    jd_text: str
+    missing_skills: list[str] = []
+    top_fixes: list[str] = []
+
+
 class TriageJD(BaseModel):
     text: str
     label: Optional[str] = None
@@ -216,6 +223,59 @@ def api_analyze(req: AnalyzeReq):
         # full serialized record so the client can log it without re-running.
         "record": record.model_dump(mode="json"),
     }
+
+
+_OPTIMIZE_SYSTEM = (
+    "You are an expert career coach and professional résumé writer. "
+    "Rewrite the candidate's résumé to maximally match the target job description. "
+    "Rules you must follow:\n"
+    "1. NEVER invent facts — every bullet, metric, date, company, or qualification "
+    "must be traceable to the original résumé.\n"
+    "2. Naturally embed as many of the MISSING SKILLS as the résumé evidence supports.\n"
+    "3. Quantify impact statements wherever the original gives enough context.\n"
+    "4. Apply every listed TOP FIX that is based on presentation, not fabrication.\n"
+    "5. Keep formatting clean: use Markdown headings (##), bullet points (-), and "
+    "bold (**) for section headers.\n"
+    "6. Preserve all dates, company names, and URLs exactly as they appear.\n"
+    "Output ONLY the rewritten résumé Markdown — no preamble, no commentary."
+)
+
+
+@app.post("/api/optimize")
+def api_optimize(req: OptimizeReq):
+    _require_key()
+    from core.llm import GroqRateLimit, chat_text
+
+    if not req.resume_text.strip() or not req.jd_text.strip():
+        raise HTTPException(400, "Please provide both a résumé and a job description.")
+
+    missing_str = (
+        ", ".join(req.missing_skills[:14]) if req.missing_skills else "none identified"
+    )
+    fixes_str = (
+        "\n".join(f"- {f}" for f in req.top_fixes[:5])
+        if req.top_fixes
+        else "- Improve keyword coverage and quantify impact statements"
+    )
+
+    user_prompt = (
+        f"ORIGINAL RÉSUMÉ:\n{req.resume_text.strip()[:4200]}\n\n"
+        f"JOB DESCRIPTION:\n{req.jd_text.strip()[:3000]}\n\n"
+        f"MISSING SKILLS/REQUIREMENTS (embed where evidence supports it):\n{missing_str}\n\n"
+        f"TOP FIXES TO APPLY:\n{fixes_str}\n\n"
+        "Rewrite the résumé now. Output ONLY the Markdown résumé."
+    )
+
+    try:
+        optimized = chat_text(_OPTIMIZE_SYSTEM, user_prompt, max_tokens=3000)
+    except GroqRateLimit:
+        raise HTTPException(
+            429, "High demand right now — please wait a minute and try again."
+        )
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(500, f"Optimization failed: {err}")
+
+    return {"optimized_resume": optimized}
 
 
 @app.post("/api/triage")
