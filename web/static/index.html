@@ -18,7 +18,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/styles.css?v=3" />
+  <link rel="stylesheet" href="/styles.css?v=4" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 </head>
@@ -425,12 +425,59 @@
     <div class="sc-foot">hirelens · find out why you're not getting hired</div>
   </div>
 
-  <div id="loading" class="loading" hidden>
-    <div class="spinner"></div>
-    <div>Reading, scoring &amp; diagnosing…</div>
-    <div class="loading-label">Running 4-step ATS audit</div>
+  <!-- LOADING OVERLAY -->
+  <div id="loading" class="loading" hidden aria-live="polite" aria-label="Analyzing your application">
+    <div class="ld-card">
+      <!-- Animated logo mark -->
+      <div class="ld-logo" aria-hidden="true">
+        <svg width="48" height="48" viewBox="0 0 32 32" fill="none">
+          <defs>
+            <linearGradient id="ldg" x1="2" y1="2" x2="30" y2="30" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#4ade80"/><stop offset="1" stop-color="#22d3ee"/>
+            </linearGradient>
+          </defs>
+          <circle cx="13" cy="13" r="9.2" stroke="url(#ldg)" stroke-width="2.6" stroke-dasharray="57.8" stroke-dashoffset="0" class="ld-ring"/>
+          <path d="M20 20l8 8" stroke="url(#ldg)" stroke-width="2.6" stroke-linecap="round"/>
+          <path d="M8.5 15.5l3-4 3 2 3.5-5.5" stroke="url(#ldg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="ld-chart"/>
+        </svg>
+      </div>
+
+      <h2 class="ld-title">Analyzing your application…</h2>
+
+      <!-- 4-step audit pipeline -->
+      <div class="ld-steps" id="ld-steps">
+        <div class="ld-step" data-step="0">
+          <span class="ld-step-icon">📥</span>
+          <span class="ld-step-label">Extracting JD requirements</span>
+          <span class="ld-step-dot"></span>
+        </div>
+        <div class="ld-step" data-step="1">
+          <span class="ld-step-icon">🔍</span>
+          <span class="ld-step-label">Classifying keyword matches</span>
+          <span class="ld-step-dot"></span>
+        </div>
+        <div class="ld-step" data-step="2">
+          <span class="ld-step-icon">⚖️</span>
+          <span class="ld-step-label">Computing weighted ATS score</span>
+          <span class="ld-step-dot"></span>
+        </div>
+        <div class="ld-step" data-step="3">
+          <span class="ld-step-icon">🩺</span>
+          <span class="ld-step-label">Diagnosing rejection stage</span>
+          <span class="ld-step-dot"></span>
+        </div>
+      </div>
+
+      <!-- Progress bar -->
+      <div class="ld-progress-track" aria-hidden="true">
+        <div class="ld-progress-fill" id="ld-progress"></div>
+      </div>
+
+      <!-- Rotating insight messages -->
+      <p class="ld-insight" id="ld-insight" aria-live="polite"></p>
+    </div>
   </div>
 
-  <script src="/app.js?v=3"></script>
+  <script src="/app.js?v=4"></script>
 </body>
 </html>

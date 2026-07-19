@@ -222,22 +222,26 @@ def score_and_diagnose(resume: ParsedResume, jd: ParsedJD) -> tuple[FitScore, Di
     if hasattr(resume, "projects") and resume.projects:
         projects_text = "; ".join(resume.projects)
 
+    # Cap inputs tightly so the combined prompt + JSON response stays within
+    # max_tokens. Resume full text is ~3 000 chars; JD full text ~2 500 chars;
+    # the structured prompt adds ~1 800 chars. Together the OUTPUT JSON is
+    # ~800–1 200 tokens, so 2 800 max_tokens is plenty with headroom.
     context = {
         "resume": {
-            "full_text": _cap(resume.raw_text, n=4000),
-            "extracted_skills": resume.skills,
-            "projects": projects_text or "(see full_text)",
+            "full_text": _cap(resume.raw_text, n=3000),
+            "extracted_skills": resume.skills[:40],        # cap list length
+            "projects": _cap(projects_text, n=600) or "(see full_text)",
             "years_experience": resume.years_experience,
             "seniority": resume.seniority,
-            "titles": resume.titles,
+            "titles": resume.titles[:6],
         },
         "job": {
             "title": jd.title,
-            "full_text": _cap(jd.raw_text, n=4000),
-            "required_skills": jd.required_skills,
-            "nice_to_have_skills": jd.nice_to_have_skills,
+            "full_text": _cap(jd.raw_text, n=2500),
+            "required_skills": jd.required_skills[:30],
+            "nice_to_have_skills": jd.nice_to_have_skills[:15],
             "seniority": jd.seniority,
-            "hard_requirements": jd.hard_requirements,
+            "hard_requirements": jd.hard_requirements[:20],
         },
     }
 

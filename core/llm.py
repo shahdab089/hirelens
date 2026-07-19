@@ -73,6 +73,96 @@ def _is_auth_or_config(err: Exception) -> bool:
     ))
 
 
+def _repair_json(raw: str) -> dict:
+    """
+    Best-effort repair of a truncated JSON string from a token-limited response.
+    Tries json.loads first; if that fails, attempts to close unclosed structures.
+    Raises json.JSONDecodeError if the string is too broken to recover.
+    """
+    raw = raw.strip()
+
+    # Strip markdown fences
+    if raw.startswith("```"):
+        parts = raw.split("```")
+        raw = parts[1] if len(parts) > 1 else raw
+        if raw.startswith("json"):
+            raw = raw[4:]
+        raw = raw.strip()
+
+    # Fast path — already valid
+    try:
+        result = json.loads(raw)
+        if isinstance(result, dict):
+            return result
+    except json.JSONDecodeError:
+        pass
+
+    # Attempt repair: strip to the last complete top-level key-value pair,
+    # close any open string, then close open braces/brackets.
+    # Strategy: find the last comma at depth 1 and truncate there, then close.
+    depth = 0
+    in_str = False
+    escape = False
+    last_safe = 0  # index of last ',' at depth 1 (safe truncation point)
+
+    for i, ch in enumerate(raw):
+        if escape:
+            escape = False
+            continue
+        if ch == "\\" and in_str:
+            escape = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
+        if ch in "{[":
+            depth += 1
+        elif ch in "}]":
+            depth -= 1
+        elif ch == "," and depth == 1:
+            last_safe = i
+
+    # If we never found a safe point, the JSON is too broken
+    if last_safe == 0:
+        raise json.JSONDecodeError("Unrepairable JSON", raw, 0)
+
+    truncated = raw[:last_safe]
+
+    # Count unclosed brackets
+    opens = truncated.count("{") - truncated.count("}")
+    arr_opens = truncated.count("[") - truncated.count("]")
+
+    # Close any unclosed arrays then objects
+    closing = "]" * max(arr_opens, 0) + "}" * max(opens, 0)
+    repaired = truncated + closing
+
+    result = json.loads(repaired)  # raises if still broken
+    if not isinstance(result, dict):
+        raise ValueError(f"Expected JSON object after repair, got {type(result)}")
+    return result
+
+
+def _parse_llm_json(raw: str) -> dict:
+    """Parse LLM output as JSON, with repair fallback for truncated responses."""
+    raw = raw.strip()
+    # Strip markdown fences
+    if raw.startswith("```"):
+        parts = raw.split("```")
+        raw = parts[1] if len(parts) > 1 else raw
+        if raw.startswith("json"):
+            raw = raw[4:]
+        raw = raw.strip()
+    try:
+        result = json.loads(raw)
+        if isinstance(result, dict):
+            return result
+        raise ValueError(f"Expected JSON object, got {type(result)}")
+    except json.JSONDecodeError:
+        return _repair_json(raw)
+
+
 def _call_anthropic(messages: list[dict], max_tokens: int, retries: int) -> "dict[str, Any] | None":
     """
     Call Claude Haiku 4.5. Returns parsed JSON dict on success, or None when the
@@ -96,7 +186,8 @@ def _call_anthropic(messages: list[dict], max_tokens: int, retries: int) -> "dic
     system_with_json = (
         system_content
         + "\n\nCRITICAL: Your entire response must be a single valid JSON object. "
-        "Do not include any text, markdown, code fences, or explanation outside the JSON."
+        "Do not include any text, markdown, code fences, or explanation outside the JSON. "
+        "Keep string values concise — rationale fields ≤ 25 words, explanation ≤ 60 words."
     )
 
     last_err: Exception | None = None
@@ -110,16 +201,7 @@ def _call_anthropic(messages: list[dict], max_tokens: int, retries: int) -> "dic
                 messages=user_messages,
             )
             raw = response.content[0].text.strip()
-            # Strip accidental markdown fences if the model adds them
-            if raw.startswith("```"):
-                parts = raw.split("```")
-                raw = parts[1] if len(parts) > 1 else raw
-                if raw.startswith("json"):
-                    raw = raw[4:]
-                raw = raw.strip()
-            parsed = json.loads(raw)
-            if not isinstance(parsed, dict):
-                raise ValueError(f"Expected JSON object, got {type(parsed)}")
+            parsed = _parse_llm_json(raw)
             return parsed
         except Exception as err:  # noqa: BLE001
             last_err = err
@@ -145,7 +227,7 @@ def _call_groq(messages: list[dict], max_tokens: int, retries: int) -> "dict[str
                 temperature=0,
                 max_tokens=max_tokens,
             )
-            return json.loads(response.choices[0].message.content)
+            return _parse_llm_json(response.choices[0].message.content)
         except Exception as err:  # noqa: BLE001
             last_err = err
             if _is_rate_limit(err):
@@ -158,7 +240,7 @@ def _call_groq(messages: list[dict], max_tokens: int, retries: int) -> "dict[str
     raise RuntimeError(f"Groq fallback call failed: {last_err}") from last_err
 
 
-def complete_json(messages: list[dict], max_tokens: int = 1536, retries: int = 2) -> "dict[str, Any]":
+def complete_json(messages: list[dict], max_tokens: int = 2800, retries: int = 2) -> "dict[str, Any]":
     """
     Try Claude Haiku 4.5 first; fall back to Groq 70B on rate-limits.
     Returns a parsed JSON dict. Raises GroqRateLimit if all providers throttled.
@@ -176,7 +258,7 @@ def complete_json(messages: list[dict], max_tokens: int = 1536, retries: int = 2
     return _call_groq(messages, max_tokens=max_tokens, retries=retries)
 
 
-def chat_json(system: str, user: str, retries: int = 2, max_tokens: int = 1536) -> "dict[str, Any]":
+def chat_json(system: str, user: str, retries: int = 2, max_tokens: int = 2800) -> "dict[str, Any]":
     """Convenience wrapper: system + user prompt -> parsed JSON dict."""
     messages = [
         {"role": "system", "content": system},

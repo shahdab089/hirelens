@@ -61,7 +61,7 @@ async function analyze() {
   const jd_text = $("jd-text").value.trim();
   if (!resume_text || !jd_text) { showError("Please provide both a résumé and a job description."); return; }
 
-  $("loading").hidden = false;
+  LoadingMgr.show();
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 60000);
@@ -82,7 +82,7 @@ async function analyze() {
   } catch (e) {
     showError("Network error — please try again.");
   } finally {
-    $("loading").hidden = true;
+    LoadingMgr.hide();
   }
 }
 
@@ -331,7 +331,7 @@ async function triage() {
     .map((text) => ({ text }));
   if (!jds.length) { tShowError("Add at least one job description."); return; }
 
-  $("loading").hidden = false;
+  LoadingMgr.show();
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 120000);
@@ -350,7 +350,7 @@ async function triage() {
   } catch (e) {
     tShowError("Network error — please try again.");
   } finally {
-    $("loading").hidden = true;
+    LoadingMgr.hide();
   }
 }
 
@@ -772,6 +772,101 @@ async function checkFormat(file) {
     spinner.hidden = true;
   }
 }
+
+// ================================================================ LOADING MGR ===
+const LoadingMgr = (() => {
+  const STEPS_MS   = [0, 5500, 12000, 19000];   // when each step activates
+  const PROGRESS   = [0, 22,   52,    78,   96]; // % after each step + final
+  const INSIGHTS = [
+    "75% of résumés are auto-rejected before a human ever reads them.",
+    "Greenhouse ranks verbatim keyword matches 1.7× higher than synonyms.",
+    "Scanning for skills buried in project bullets — they count equally.",
+    "Workday collapses multi-column layouts, scrambling your work history.",
+    "Comparing your seniority level to the JD's stated minimum…",
+    "A skills section that mirrors JD phrasing exactly beats a 'skills summary'.",
+    "iCIMS ignores content inside tables — move it to plain text bullets.",
+    "Ranking gaps by how often this role auto-rejects for each missing skill…",
+    "Most ATS rejections happen at the keyword filter — before recruiter review.",
+    "Classifying: EXACT, SYNONYM, CONTEXT, or ABSENT for each requirement…",
+    "One missing 'hard' keyword can drop an 85% fit to auto-reject territory.",
+    "Your résumé's acronyms must appear both abbreviated AND spelled out.",
+  ];
+
+  let timers = [], msgTimer, step = -1, msgIdx = 0;
+
+  function setStep(n) {
+    const els = document.querySelectorAll(".ld-step");
+    els.forEach((el, i) => {
+      el.classList.toggle("ld-done",   i < n);
+      el.classList.toggle("ld-active", i === n);
+      el.classList.remove("ld-done");
+      if (i < n)  el.classList.add("ld-done");
+      if (i === n) el.classList.add("ld-active");
+    });
+    const pEl = document.getElementById("ld-progress");
+    if (pEl) pEl.style.width = (PROGRESS[n + 1] || 22) + "%";
+  }
+
+  function cycleInsight() {
+    const el = document.getElementById("ld-insight");
+    if (!el) return;
+    el.classList.add("fade-out");
+    setTimeout(() => {
+      msgIdx = (msgIdx + 1) % INSIGHTS.length;
+      el.textContent = INSIGHTS[msgIdx];
+      el.classList.remove("fade-out");
+      el.classList.add("fade-in");
+      setTimeout(() => el.classList.remove("fade-in"), 400);
+    }, 400);
+  }
+
+  function show() {
+    const overlay = document.getElementById("loading");
+    if (!overlay) return;
+    overlay.hidden = false;
+    step = -1; msgIdx = Math.floor(Math.random() * INSIGHTS.length);
+
+    // Reset all steps
+    document.querySelectorAll(".ld-step").forEach(el => {
+      el.classList.remove("ld-active", "ld-done");
+    });
+    const pEl = document.getElementById("ld-progress");
+    if (pEl) { pEl.style.transition = "none"; pEl.style.width = "0%"; }
+    requestAnimationFrame(() => {
+      if (pEl) pEl.style.transition = "";
+    });
+
+    // First insight
+    const ins = document.getElementById("ld-insight");
+    if (ins) ins.textContent = INSIGHTS[msgIdx];
+
+    // Schedule steps
+    STEPS_MS.forEach((ms, i) => {
+      timers.push(setTimeout(() => setStep(i), ms));
+    });
+
+    // Cycle insights every 3.2s
+    msgTimer = setInterval(cycleInsight, 3200);
+  }
+
+  function hide() {
+    const overlay = document.getElementById("loading");
+    if (!overlay) return;
+    // Fill to 100% briefly before hiding
+    const pEl = document.getElementById("ld-progress");
+    if (pEl) pEl.style.width = "100%";
+    // Mark last step done
+    document.querySelectorAll(".ld-step").forEach(el => {
+      el.classList.remove("ld-active");
+      el.classList.add("ld-done");
+    });
+    timers.forEach(clearTimeout); timers = [];
+    clearInterval(msgTimer);
+    setTimeout(() => { overlay.hidden = true; }, 350);
+  }
+
+  return { show, hide };
+})();
 
 function showOptError(msg) {
   const b = $("optimize-error");
