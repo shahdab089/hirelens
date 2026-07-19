@@ -283,7 +283,7 @@ def api_optimize(req: OptimizeReq):
     )
 
     try:
-        optimized = chat_text(_OPTIMIZE_SYSTEM, user_prompt, max_tokens=3000)
+        optimized = chat_text(_OPTIMIZE_SYSTEM, user_prompt, max_tokens=5000)
     except GroqRateLimit:
         raise HTTPException(
             429, "High demand right now — please wait a minute and try again."
