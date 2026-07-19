@@ -70,6 +70,33 @@ def _analysis_cache_key(resume_text: str, jd_text: str) -> str:
     return h.hexdigest()
 
 
+# ── In-memory cache for text-generation endpoints (optimize + cover letter) ──
+# Keyed on SHA-256 of inputs; capped at 256 entries (oldest evicted first).
+# Survives within a single server process — free on cache hit, no LLM call.
+_TEXT_CACHE: dict[str, str] = {}
+_TEXT_CACHE_MAX = 256
+
+
+def _text_cache_get(key: str) -> str | None:
+    return _TEXT_CACHE.get(key)
+
+
+def _text_cache_put(key: str, value: str) -> None:
+    if len(_TEXT_CACHE) >= _TEXT_CACHE_MAX:
+        # evict oldest entry
+        oldest = next(iter(_TEXT_CACHE))
+        del _TEXT_CACHE[oldest]
+    _TEXT_CACHE[key] = value
+
+
+def _text_cache_key(*parts: str) -> str:
+    h = hashlib.sha256()
+    for p in parts:
+        h.update(p.encode("utf-8"))
+        h.update(b"\x00")
+    return h.hexdigest()
+
+
 SAMPLE_CACHE_FILE = BASE / "data" / "sample_cache.json"
 
 
@@ -282,8 +309,25 @@ def api_optimize(req: OptimizeReq):
         "Rewrite the résumé now. Output ONLY the Markdown résumé."
     )
 
+    # Cache key covers every input that affects the output
+    ck = _text_cache_key(
+        "optimize",
+        req.resume_text.strip()[:4200],
+        req.jd_text.strip()[:3000],
+        missing_str,
+        fixes_str,
+    )
+    cached_opt = _text_cache_get(ck)
+    if cached_opt is not None:
+        return {"optimized_resume": cached_opt, "cached": True}
+
     try:
-        optimized = chat_text(_OPTIMIZE_SYSTEM, user_prompt, max_tokens=5000)
+        # prefer_groq=True: Groq (llama-3.3-70b) handles long text rewrites well
+        # and output tokens are ~85% cheaper than Claude Haiku — no quality loss.
+        # Anthropic is kept as automatic fallback if Groq is rate-limited.
+        optimized = chat_text(
+            _OPTIMIZE_SYSTEM, user_prompt, max_tokens=5000, prefer_groq=True
+        )
     except GroqRateLimit:
         raise HTTPException(
             429, "High demand right now — please wait a minute and try again."
@@ -291,6 +335,7 @@ def api_optimize(req: OptimizeReq):
     except Exception as err:  # noqa: BLE001
         raise HTTPException(500, f"Optimization failed: {err}")
 
+    _text_cache_put(ck, optimized)
     return {"optimized_resume": optimized}
 
 
@@ -342,13 +387,29 @@ def api_cover_letter(req: CoverLetterReq):
         "Open with the candidate's strongest measurable achievement relevant to this role."
     )
 
+    ck = _text_cache_key(
+        "cover-letter",
+        req.resume_text.strip()[:3500],
+        req.jd_text.strip()[:2500],
+        matched_str,
+        missing_str,
+    )
+    cached_cl = _text_cache_get(ck)
+    if cached_cl is not None:
+        return {"cover_letter": cached_cl, "cached": True}
+
     try:
-        letter = chat_text(_COVER_LETTER_SYSTEM, user_prompt, max_tokens=900)
+        # prefer_groq=True: Groq handles creative writing well and is far cheaper
+        # on output tokens. Anthropic auto-fallback kept for reliability.
+        letter = chat_text(
+            _COVER_LETTER_SYSTEM, user_prompt, max_tokens=900, prefer_groq=True
+        )
     except GroqRateLimit:
         raise HTTPException(429, "High demand — please wait a moment and try again.")
     except Exception as err:
         raise HTTPException(500, f"Cover letter generation failed: {err}")
 
+    _text_cache_put(ck, letter)
     return {"cover_letter": letter}
 
 

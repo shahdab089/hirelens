@@ -267,15 +267,56 @@ def chat_json(system: str, user: str, retries: int = 2, max_tokens: int = 2800) 
     return complete_json(messages, max_tokens=max_tokens, retries=retries)
 
 
-def chat_text(system: str, user: str, max_tokens: int = 3000, retries: int = 2) -> str:
-    """Like chat_json but returns a plain text string (e.g. for resume rewriting)."""
-    # Try Anthropic primary
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        client = _get_anthropic()
-        last_err: Exception | None = None
+def chat_text(
+    system: str,
+    user: str,
+    max_tokens: int = 3000,
+    retries: int = 2,
+    prefer_groq: bool = False,
+) -> str:
+    """Like chat_json but returns a plain text string (e.g. for resume rewriting).
+
+    prefer_groq=True  → try Groq first (cheaper for long text outputs), fall back
+                        to Anthropic only if Groq is rate-limited or unavailable.
+    prefer_groq=False → try Anthropic first (default; better for structured tasks),
+                        fall back to Groq.
+    """
+
+    def _try_groq() -> str | None:
+        """Attempt Groq; return text on success, None if unavailable, raise on rate-limit."""
+        if not os.environ.get("GROQ_API_KEY"):
+            return None
+        gclient = _get_groq()
+        last: Exception | None = None
         for attempt in range(retries + 1):
             try:
-                resp = client.messages.create(
+                resp = gclient.chat.completions.create(
+                    model=GROQ_FALLBACK_MODEL,
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                    temperature=0.35,
+                    max_tokens=max_tokens,
+                )
+                return resp.choices[0].message.content.strip()
+            except Exception as err:  # noqa: BLE001
+                last = err
+                if _is_rate_limit(err):
+                    raise GroqRateLimit("Groq rate-limited during text generation.") from err
+                if attempt < retries:
+                    time.sleep(1.5 * (attempt + 1))
+        return None  # non-rate-limit failure — fall through to Anthropic
+
+    def _try_anthropic() -> str | None:
+        """Attempt Anthropic; return text on success, None if unavailable/auth-error."""
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            return None
+        aclient = _get_anthropic()
+        last: Exception | None = None
+        for attempt in range(retries + 1):
+            try:
+                resp = aclient.messages.create(
                     model=ANTHROPIC_MODEL,
                     max_tokens=max_tokens,
                     temperature=0.35,
@@ -284,35 +325,29 @@ def chat_text(system: str, user: str, max_tokens: int = 3000, retries: int = 2) 
                 )
                 return resp.content[0].text.strip()
             except Exception as err:  # noqa: BLE001
-                last_err = err
+                last = err
                 if _is_rate_limit(err) or _is_auth_or_config(err):
-                    break  # fall through to Groq
+                    return None  # fall through to other provider
                 if attempt < retries:
                     time.sleep(1.5 * (attempt + 1))
+        return None
 
-    # Groq fallback — plain text (no JSON mode)
-    client = _get_groq()
-    last_err = None
-    for attempt in range(retries + 1):
-        try:
-            resp = client.chat.completions.create(
-                model=GROQ_FALLBACK_MODEL,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                temperature=0.35,
-                max_tokens=max_tokens,
-            )
-            return resp.choices[0].message.content.strip()
-        except Exception as err:  # noqa: BLE001
-            last_err = err
-            if _is_rate_limit(err):
-                raise GroqRateLimit("Groq rate-limited during text generation.") from err
-            if attempt < retries:
-                time.sleep(1.5 * (attempt + 1))
+    if prefer_groq:
+        result = _try_groq()
+        if result is not None:
+            return result
+        result = _try_anthropic()
+        if result is not None:
+            return result
+    else:
+        result = _try_anthropic()
+        if result is not None:
+            return result
+        result = _try_groq()
+        if result is not None:
+            return result
 
-    raise RuntimeError(f"Text generation failed after retries: {last_err}") from last_err
+    raise RuntimeError("Text generation failed: all providers exhausted.")
 
 
 def get_client() -> Groq:
